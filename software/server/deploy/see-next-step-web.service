@@ -1,0 +1,19 @@
+[Unit]
+Description=See Next Step web demo (看见下一步)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/disablewatch/minicpmo_access_demo_final
+EnvironmentFile=/opt/disablewatch/minicpmo_access_demo_final/.env
+Environment=PORT=8000
+Environment=GRADIO_ANALYTICS_ENABLED=False
+Environment=HF_HUB_DISABLE_TELEMETRY=1
+Environment=MINIPROGRAM_API_BASE=https://watchapi.divesee.com
+ExecStart=/opt/disablewatch/minicpmo_access_demo_final/.venv/bin/python app.py --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

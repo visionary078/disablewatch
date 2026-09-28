@@ -1,0 +1,62 @@
+[
+  {
+    "id": "entrance_01",
+    "image": "entrance_01.jpg",
+    "question": "入口在哪个方向？请先提醒风险。",
+    "expected_intent": "find_entrance"
+  },
+  {
+    "id": "entrance_02",
+    "image": "entrance_02.jpg",
+    "question": "请帮我寻找店铺入口，无法确认时请明确说明。",
+    "expected_intent": "find_entrance"
+  },
+  {
+    "id": "product_01",
+    "image": "product_01.jpg",
+    "question": "请帮我找矿泉水，它在画面的哪个方向？",
+    "expected_intent": "find_product"
+  },
+  {
+    "id": "product_02",
+    "image": "product_02.jpg",
+    "question": "目标商品在左侧还是右侧？看不清时不要猜。",
+    "expected_intent": "find_product"
+  },
+  {
+    "id": "price_01",
+    "image": "price_01.jpg",
+    "question": "请读取商品名称和价格。",
+    "expected_intent": "read_price"
+  },
+  {
+    "id": "price_02",
+    "image": "price_02.jpg",
+    "question": "价格标签写了什么？不确定的数字不要猜测。",
+    "expected_intent": "read_price"
+  },
+  {
+    "id": "cashier_01",
+    "image": "cashier_01.jpg",
+    "question": "收银台在哪个方向？请先提醒通道风险。",
+    "expected_intent": "find_cashier"
+  },
+  {
+    "id": "cashier_02",
+    "image": "cashier_02.jpg",
+    "question": "请寻找服务台或收银标识。",
+    "expected_intent": "find_cashier"
+  },
+  {
+    "id": "obstacle_01",
+    "image": "obstacle_01.jpg",
+    "question": "前方是否有台阶或地面障碍？",
+    "expected_intent": "avoid_obstacle"
+  },
+  {
+    "id": "obstacle_02",
+    "image": "obstacle_02.jpg",
+    "question": "请检查玻璃门、车辆、行人或狭窄通道风险。",
+    "expected_intent": "avoid_obstacle"
+  }
+]

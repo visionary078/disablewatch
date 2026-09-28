@@ -1,0 +1,189 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --card: #152033;
+  --text: #f8fafc;
+  --muted: #93a4c0;
+  --accent: #fbbf24;
+  --danger: #fb7185;
+  --ok: #34d399;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: calc(12px + env(safe-area-inset-top)) 16px calc(96px + env(safe-area-inset-bottom));
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+}
+
+.header,
+main {
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  font-size: 13px;
+}
+
+h1,
+h2 {
+  margin: 0 0 12px;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: clamp(28px, 6vw, 42px);
+}
+
+.speech {
+  font-size: clamp(22px, 4.6vw, 32px);
+  line-height: 1.4;
+  font-weight: 700;
+  margin: 12px 0 8px;
+}
+
+.meta {
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.preview {
+  width: 100%;
+  max-height: 28vh;
+  object-fit: cover;
+  border-radius: 18px;
+  background: #020617;
+  border: 1px solid #1e293b;
+}
+
+.dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.8fr;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, #020617 30%);
+}
+
+button {
+  min-height: 64px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--accent);
+  color: #111827;
+  font-size: 18px;
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+button.ghost {
+  background: #1e293b;
+  color: var(--text);
+}
+
+button:disabled {
+  opacity: 0.45;
+}
+
+button.recording {
+  background: var(--danger);
+  color: #fff;
+}
+
+.gate,
+.settings {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.92);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 5;
+}
+
+.hidden {
+  display: none;
+}
+
+.gate-card {
+  width: min(520px, 100%);
+  background: var(--card);
+  border-radius: 24px;
+  padding: 24px;
+}
+
+.gate-card p {
+  color: #dbe4f3;
+  line-height: 1.55;
+}
+
+.gate-card button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+label {
+  display: block;
+  margin: 12px 0 6px;
+  color: var(--muted);
+}
+
+input {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 16px;
+}
+
+body.risk-high #status,
+body.risk-high .speech {
+  color: var(--danger);
+}
+
+body.risk-medium #status {
+  color: var(--accent);
+}
+
+body.risk-low #status {
+  color: var(--ok);
+}
+
+@media (max-height: 520px) {
+  .preview {
+    max-height: 18vh;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+}

@@ -1,0 +1,8 @@
+gradio>=4.44,<6
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2
+python-multipart>=0.0.9
+edge-tts>=6.1.0
+
+# 独立 API 版不需要 torch、torch_npu、transformers、CUDA/NPU 或本地模型权重。

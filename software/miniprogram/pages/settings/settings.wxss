@@ -1,0 +1,80 @@
+.page {
+  height: 100vh;
+  padding: 24rpx 28rpx 60rpx;
+  box-sizing: border-box;
+  background: #111111;
+}
+
+.lead,
+.hint,
+.safety,
+.health {
+  display: block;
+  color: #d0d0d0;
+  font-size: 28rpx;
+  line-height: 1.5;
+  margin-bottom: 20rpx;
+}
+
+.label {
+  display: block;
+  margin: 18rpx 0 10rpx;
+  color: #ffe14d;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.field {
+  width: 100%;
+  min-height: 88rpx;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+  border-radius: 14rpx;
+  background: #000000;
+  color: #ffffff;
+  font-size: 32rpx;
+}
+
+.toggle {
+  min-height: 96rpx;
+  margin-top: 16rpx;
+  padding: 0 20rpx;
+  border-radius: 14rpx;
+  background: #2b2b2b;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.toggle-state {
+  color: #ffe14d;
+}
+
+.btn {
+  margin-top: 24rpx;
+  min-height: 96rpx;
+  border-radius: 16rpx;
+  background: #ffe14d;
+  color: #111111;
+  font-size: 32rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-secondary {
+  background: #2b2b2b;
+  color: #ffffff;
+}
+
+.health {
+  min-height: 48rpx;
+  color: #ffe14d;
+}
+
+.safety {
+  margin-top: 24rpx;
+}

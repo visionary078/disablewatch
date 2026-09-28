@@ -1,0 +1,85 @@
+<scroll-view class="page" scroll-y>
+  <text class="lead" aria-role="text">
+    小程序只保存你的业务服务器地址和口令，不会保存视觉模型密钥。
+  </text>
+
+  <text class="label">服务器地址</text>
+  <input
+    class="field"
+    value="{{apiBaseUrl}}"
+    placeholder="例如 https://your-domain.example"
+    aria-label="服务器地址，需要 HTTPS 域名"
+    bindinput="onApiBaseUrl"
+  />
+
+  <text class="label">业务口令 APP_TOKEN</text>
+  <input
+    class="field"
+    value="{{appToken}}"
+    password
+    placeholder="与服务器环境变量一致"
+    aria-label="业务口令，需与服务器 APP_TOKEN 一致"
+    bindinput="onAppToken"
+  />
+
+  <text class="label">模型配置名称</text>
+  <input
+    class="field"
+    value="{{modelProfile}}"
+    placeholder="留空则使用服务器默认，例如 primary"
+    aria-label="模型配置名称，可留空"
+    bindinput="onModelProfile"
+  />
+
+  <view
+    class="toggle"
+    aria-role="button"
+    aria-label="{{enableAppTts ? '关闭应用内语音播报' : '打开应用内语音播报'}}"
+    bindtap="onToggleTts"
+  >
+    <text>应用内语音播报</text>
+    <text class="toggle-state">{{enableAppTts ? "开" : "关"}}</text>
+  </view>
+  <text class="hint">若正在使用手机旁白或 TalkBack，可关闭应用内播报，避免重复朗读。</text>
+
+  <view
+    class="toggle"
+    aria-role="button"
+    aria-label="{{enableDepth ? '关闭实验性距离估计' : '打开实验性距离估计'}}"
+    bindtap="onToggleDepth"
+  >
+    <text>实验性距离估计</text>
+    <text class="toggle-state">{{enableDepth ? "开" : "关"}}</text>
+  </view>
+  <text class="hint">使用微信 VisionKit 粗估远近，不是苹果 LiDAR，不能当作精确测距。</text>
+
+  <text class="label">播报语速 {{playbackRateText}}</text>
+  <slider
+    min="50"
+    max="130"
+    step="10"
+    value="{{playbackRatePercent}}"
+    aria-label="播报语速"
+    bindchange="onPlaybackRate"
+  />
+
+  <button
+    class="btn"
+    aria-role="button"
+    aria-label="保存设置"
+    bindtap="onSave"
+  >
+    保存设置
+  </button>
+  <button
+    class="btn btn-secondary"
+    aria-role="button"
+    aria-label="检查服务器是否可用"
+    bindtap="onCheckHealth"
+  >
+    检查服务器
+  </button>
+
+  <text class="health" aria-live="polite" aria-atomic="true">{{healthText}}</text>
+  <text class="safety" aria-role="text">{{safetyText}}</text>
+</scroll-view>

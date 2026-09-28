@@ -1,0 +1,31 @@
+{
+  "pages": [
+    "pages/assist/assist",
+    "pages/settings/settings"
+  ],
+  "plugins": {
+    "WechatSI": {
+      "version": "0.3.9",
+      "provider": "wx069ba97219f66d99"
+    }
+  },
+  "window": {
+    "navigationBarTitleText": "看见下一步",
+    "navigationBarBackgroundColor": "#111111",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#111111",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "componentFramework": "glass-easel",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents",
+  "permission": {
+    "scope.camera": {
+      "desc": "用于拍摄当前环境，辅助判断方向、障碍和下一步行动。"
+    },
+    "scope.record": {
+      "desc": "用于语音提问，方便在无法看清屏幕时输入任务。"
+    }
+  }
+}

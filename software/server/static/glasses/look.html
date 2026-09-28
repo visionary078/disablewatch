@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070706" />
+    <title>看见下一步 · 眼镜</title>
+    <style>
+      :root {
+        --bg: #070706;
+        --ink: #f6f1e8;
+        --mute: #9a9184;
+        --gold: #c4b08a;
+        --line: #2a2824;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .stage {
+        position: relative;
+        min-height: 100dvh;
+      }
+
+      canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .copy {
+        position: relative;
+        z-index: 1;
+        max-width: 440px;
+        min-height: 100dvh;
+        padding: 36px 40px 32px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        pointer-events: none;
+        background: linear-gradient(90deg, rgba(7, 7, 6, 0.92) 0%, rgba(7, 7, 6, 0.72) 62%, rgba(7, 7, 6, 0) 100%);
+      }
+
+      .copy a {
+        pointer-events: auto;
+      }
+
+      .brand {
+        margin: 0;
+        letter-spacing: 0.28em;
+        font-size: 11px;
+        color: var(--gold);
+      }
+
+      h1 {
+        margin: 48px 0 18px;
+        font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+        font-weight: 500;
+        font-size: clamp(40px, 5vw, 64px);
+        line-height: 1.12;
+      }
+
+      .lead {
+        margin: 0;
+        color: #d9d0c3;
+        font-size: 16px;
+        line-height: 1.8;
+        max-width: 16em;
+      }
+
+      .scenes {
+        margin: 36px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 16px;
+      }
+
+      .scenes b {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+        letter-spacing: 0.16em;
+        font-size: 12px;
+        color: var(--gold);
+      }
+
+      .scenes span {
+        color: var(--mute);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .foot {
+        margin-top: 32px;
+        font-size: 13px;
+      }
+
+      .try {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 28px;
+        padding: 12px 28px;
+        border-radius: 999px;
+        background: var(--ink);
+        color: #161513;
+        text-decoration: none;
+        font-size: 14px;
+        letter-spacing: 0.14em;
+      }
+
+      .hint {
+        position: absolute;
+        right: 28px;
+        bottom: 24px;
+        z-index: 1;
+        margin: 0;
+        color: var(--mute);
+        letter-spacing: 0.18em;
+        font-size: 11px;
+        pointer-events: none;
+      }
+
+      @media (max-width: 860px) {
+        .copy {
+          min-height: auto;
+          padding: 24px 20px 20px;
+          background: linear-gradient(180deg, rgba(7, 7, 6, 0.94) 0%, rgba(7, 7, 6, 0.2) 100%);
+        }
+
+        h1 {
+          margin-top: 24px;
+        }
+
+        .stage {
+          min-height: 100dvh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="stage">
+      <canvas id="view" aria-label="白框眼镜，鼻梁上方一颗小摄像头"></canvas>
+      <section class="copy">
+        <div>
+          <p class="brand">看见下一步</p>
+          <h1>看见眼前，<br />轻轻告诉你。</h1>
+          <p class="lead">一副安静的白框眼镜。你看向哪里，它就轻声告诉你，在哪一侧、近不近。</p>
+          <ul class="scenes">
+            <li><b>超市</b><span>篮子在手里，说一声要找的东西。</span></li>
+            <li><b>家里</b><span>药和杯子，不用摸一整面柜子。</span></li>
+            <li><b>门口</b><span>门和收银台，只告诉你在哪一侧。</span></li>
+            <li><b>歇一下</b><span>摘下来挂在胸前，它就不再出声。</span></li>
+          </ul>
+        </div>
+        <p class="foot"><a class="try" href="./">体验一下</a></p>
+      </section>
+      <p class="hint">拖动看看</p>
+    </main>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      const canvas = document.getElementById("view");
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setClearColor(0x000000, 0);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.15;
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 10);
+      camera.position.set(0, 0.008, 0.62);
+
+      const controls = new OrbitControls(camera, canvas);
+      controls.enableDamping = true;
+      controls.autoRotate = false;
+      controls.autoRotateSpeed = 0.35;
+      controls.enablePan = false;
+      controls.minDistance = 0.22;
+      controls.maxDistance = 0.7;
+      controls.target.set(0, 0, 0);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+      const key = new THREE.DirectionalLight(0xfff6ee, 2.8);
+      key.position.set(0.35, 0.45, 0.9);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0xe7d7b8, 2.2);
+      rim.position.set(-0.7, 0.15, 0.2);
+      scene.add(rim);
+      const fill = new THREE.DirectionalLight(0x9eb4c8, 0.9);
+      fill.position.set(0.2, -0.2, 0.6);
+      scene.add(fill);
+
+      const frame = new THREE.MeshStandardMaterial({
+        color: 0xf6f3ec,
+        metalness: 0.06,
+        roughness: 0.38,
+      });
+      const glass = new THREE.MeshPhysicalMaterial({
+        color: 0x1a1a1a,
+        metalness: 0.2,
+        roughness: 0.08,
+        transmission: 0.42,
+        thickness: 0.004,
+        transparent: true,
+      });
+
+      function addCamera(model) {
+        const lenses = model.getObjectByName("LensesExterior") || model;
+        const box = new THREE.Box3().setFromObject(lenses);
+        const center = box.getCenter(new THREE.Vector3());
+        const group = new THREE.Group();
+        const housing = new THREE.Mesh(
+          new THREE.SphereGeometry(0.0046, 24, 16),
+          new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.85, roughness: 0.18 })
+        );
+        const lens = new THREE.Mesh(
+          new THREE.SphereGeometry(0.0022, 20, 12),
+          new THREE.MeshStandardMaterial({
+            color: 0x143044,
+            metalness: 0.05,
+            roughness: 0.12,
+            emissive: 0x9fd0ff,
+            emissiveIntensity: 1.8,
+          })
+        );
+        lens.position.z = 0.0032;
+        group.add(housing, lens);
+        const height = box.max.y - box.min.y;
+        group.position.set(center.x, center.y + height * 0.38, box.max.z + 0.002);
+        model.add(group);
+      }
+
+      function thicken(mesh, sx, sz) {
+        const geo = mesh.geometry.clone();
+        geo.computeBoundingBox();
+        const c = geo.boundingBox.getCenter(new THREE.Vector3());
+        geo.translate(-c.x, -c.y, -c.z);
+        geo.scale(sx, 1, sz);
+        geo.translate(c.x, c.y, c.z);
+        mesh.geometry = geo;
+      }
+
+      new GLTFLoader().load("./look/sunglasses.glb", (gltf) => {
+        const model = gltf.scene;
+        model.traverse((obj) => {
+          if (!obj.isMesh) return;
+          obj.material = /Lens/i.test(obj.name) ? glass : frame;
+          if (/Temple/i.test(obj.name)) thicken(obj, 2.6, 2.2);
+          else if (/Earhook/i.test(obj.name)) thicken(obj, 2.4, 1.35);
+        });
+        addCamera(model);
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.sub(center);
+        model.position.x += 0.02;
+        scene.add(model);
+      });
+
+      function resize() {
+        const w = canvas.clientWidth || window.innerWidth;
+        const h = canvas.clientHeight || window.innerHeight;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+
+      function tick() {
+        resize();
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+      }
+      tick();
+    </script>
+  </body>
+</html>

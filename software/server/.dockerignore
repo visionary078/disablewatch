@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+tests
+examples
+.git
+.gitignore
+*.md
+.benchmark*
+benchmark.py
+app.py
+scripts
