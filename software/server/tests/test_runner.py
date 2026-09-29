@@ -47,6 +47,10 @@ class RunnerSafetyTests(unittest.TestCase):
             "action",
             "speech",
             "task_decision",
+            "anchor",
+            "level",
+            "slot",
+            "place_index",
             "main_task",
         }
         self.assertEqual(set(value), expected)
@@ -84,6 +88,38 @@ class RunnerSafetyTests(unittest.TestCase):
         )
         self.assertIn("正在帮你找可乐", value["speech"])
         self.assertNotIn("目标在", value["speech"])
+        self.assertNotIn("第", value["speech"])
+
+    def test_shelf_is_counted_from_the_users_left_hand(self):
+        from minicpmo_runner import compose_find_speech
+
+        speech = compose_find_speech(
+            "可乐",
+            direction="正前方",
+            anchor="货架",
+            level="手高这一层",
+            slot="中间",
+            place_index=2,
+        )
+        self.assertIn("正前方的货架", speech)
+        self.assertIn("手高这一层", speech)
+        self.assertIn("从你左手边数第2个", speech)
+        self.assertNotIn("米", speech)
+
+    def test_blank_surface_uses_the_near_edge_not_a_count(self):
+        from minicpmo_runner import compose_find_speech
+
+        speech = compose_find_speech(
+            "纸",
+            direction="正前方",
+            anchor="平面",
+            level="手高这一层",
+            slot="靠左",
+            place_index=3,
+        )
+        self.assertIn("靠近你这一侧", speech)
+        self.assertIn("靠左", speech)
+        self.assertNotIn("第", speech)
 
     def test_distance_band_is_coarse_and_avoids_meters(self):
         value = apply_distance_band(

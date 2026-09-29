@@ -28,6 +28,7 @@
     running: false,
     inferring: false,
     recording: false,
+    holding: false,
     stream: null,
     timer: null,
     sessionId: sessionId(),
@@ -46,14 +47,14 @@
 
   hydrateSettingsFromUrl();
 
-  els.startBtn.addEventListener("click", startAssist);
-  els.gateSettings.addEventListener("click", () => openSettings(true));
-  els.saveSettings.addEventListener("click", saveSettings);
-  els.closeSettings.addEventListener("click", () => closeSettings(false));
-  els.preciseBtn.addEventListener("click", () => captureAndInfer("precise"));
-  els.stopBtn.addEventListener("click", stopAssist);
+  if (els.startBtn) els.startBtn.addEventListener("click", startAssist);
+  if (els.gateSettings) els.gateSettings.addEventListener("click", () => openSettings(true));
+  if (els.saveSettings) els.saveSettings.addEventListener("click", saveSettings);
+  if (els.closeSettings) els.closeSettings.addEventListener("click", () => closeSettings(false));
+  if (els.preciseBtn) els.preciseBtn.addEventListener("click", () => captureAndInfer("precise"));
+  if (els.stopBtn) els.stopBtn.addEventListener("click", stopAssist);
   bindHold(els.talkBtn, beginTalk, endTalk);
-  bindLongPress(els.header, () => openSettings(false));
+  if (els.header) bindLongPress(els.header, () => openSettings(false));
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
   document.addEventListener("visibilitychange", () => {
@@ -90,33 +91,51 @@
     return id;
   }
 
-  function saveHighlights(items) {
-    const incoming = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : [];
-    if (!incoming.length) return;
+  const NOTE_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function readStoredNotes() {
     let prev = [];
     try {
       prev = JSON.parse(localStorage.getItem("memoryHighlights") || "[]");
     } catch (error) {
       prev = [];
     }
-    const merged = [];
-    incoming.concat(Array.isArray(prev) ? prev : []).forEach((item) => {
-      if (item && merged.indexOf(item) < 0 && merged.length < 20) merged.push(item);
+    const now = Date.now();
+    const fresh = (Array.isArray(prev) ? prev : [])
+      .map((item) => {
+        if (item && typeof item === "object" && item.text) {
+          return { text: String(item.text).trim(), at: Number(item.at) || 0 };
+        }
+        return null;
+      })
+      .filter((item) => item && item.text && now - item.at <= NOTE_TTL_MS)
+      .slice(0, 20);
+    localStorage.setItem("memoryHighlights", JSON.stringify(fresh));
+    return fresh;
+  }
+
+  function saveHighlights(items) {
+    const incoming = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : [];
+    const now = Date.now();
+    const stored = readStoredNotes();
+    incoming.forEach((text) => {
+      const found = stored.find((item) => item.text === text);
+      if (found) found.at = now;
+      else stored.unshift({ text, at: now });
     });
-    localStorage.setItem("memoryHighlights", JSON.stringify(merged));
-    renderHighlightList(merged);
+    localStorage.setItem("memoryHighlights", JSON.stringify(stored.filter((item) => now - item.at <= NOTE_TTL_MS).slice(0, 20)));
     refreshHighlights();
   }
 
-  function renderHighlightList(items) {
-    const list = document.getElementById("highlight-list");
+  function fillMemoryList(id, items) {
+    const list = document.getElementById(id);
     if (!list) return;
     const rows = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : [];
     list.replaceChildren();
     if (!rows.length) {
       const empty = document.createElement("li");
       empty.className = "empty";
-      empty.textContent = "还没有记下重点。";
+      empty.textContent = "还没有。";
       list.appendChild(empty);
       return;
     }
@@ -127,6 +146,18 @@
     });
   }
 
+  function renderMemory(memory, mainTask) {
+    const groups = memory || {};
+    fillMemoryList("kept-list", groups.kept);
+    fillMemoryList("find-list", groups.finds);
+    fillMemoryList("fix-list", groups.corrections);
+    const now = document.getElementById("memory-now");
+    if (now) {
+      const goal = String(mainTask || "").trim();
+      now.textContent = goal ? `正在找：${goal}` : "正在找：还没有";
+    }
+  }
+
   async function refreshHighlights() {
     try {
       const res = await fetch(`${apiUrl("/highlights")}?user_id=${encodeURIComponent(userId())}`, {
@@ -134,7 +165,7 @@
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) return;
-      renderHighlightList(payload.highlights);
+      renderMemory(payload.memory, state.mainTask);
     } catch (error) {
       /* 后台暂时读不到时，保留刚才画上的重点。 */
     }
@@ -257,12 +288,14 @@
       return;
     }
     els.preview.srcObject = state.stream;
-    els.gate.classList.add("hidden");
-    els.gate.setAttribute("hidden", "");
-    els.gate.setAttribute("aria-hidden", "true");
+    if (els.gate) {
+      els.gate.classList.add("hidden");
+      els.gate.setAttribute("hidden", "");
+      els.gate.setAttribute("aria-hidden", "true");
+    }
     els.talkBtn.disabled = false;
-    els.preciseBtn.disabled = false;
-    els.stopBtn.disabled = false;
+    if (els.preciseBtn) els.preciseBtn.disabled = false;
+    if (els.stopBtn) els.stopBtn.disabled = false;
     state.running = true;
     setStatus("正在看", SAFETY);
     els.meta.textContent = "可以说要找什么";
@@ -280,12 +313,13 @@
       state.stream = null;
     }
     els.preview.srcObject = null;
-    els.talkBtn.disabled = true;
-    els.preciseBtn.disabled = true;
-    els.stopBtn.disabled = true;
-    els.gate.classList.remove("hidden");
-    els.gate.removeAttribute("hidden");
-    els.gate.removeAttribute("aria-hidden");
+    if (els.preciseBtn) els.preciseBtn.disabled = true;
+    if (els.stopBtn) els.stopBtn.disabled = true;
+    if (els.gate) {
+      els.gate.classList.remove("hidden");
+      els.gate.removeAttribute("hidden");
+      els.gate.removeAttribute("aria-hidden");
+    }
     document.body.className = "";
     setStatus("已停下", "需要时再说开始看。");
   }
@@ -371,9 +405,11 @@
       throw new Error((payload && payload.error) || "远程模型调用失败");
     }
     const result = payload.result || null;
-    saveHighlights(payload.highlights);
     const task = payload.task || {};
     const mainTask = task.main_task || (result && result.main_task) || state.mainTask || "";
+    state.mainTask = mainTask;
+    renderMemory(payload.memory, mainTask);
+    saveHighlights(payload.highlights);
     const now = Date.now();
     if (payload.sensors && typeof payload.sensors.camera === "boolean") {
       state.sensors = payload.sensors;
@@ -453,8 +489,35 @@
     if (event.code === "Space") endTalk(false);
   }
 
+  async function openCamera() {
+    if (state.running && state.stream) return true;
+    try {
+      state.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      });
+    } catch (error) {
+      setStatus("无法打开摄像头", "请允许摄像头和麦克风后，再按住说话。");
+      await speak("请允许摄像头和麦克风后，再按住说话。");
+      return false;
+    }
+    els.preview.srcObject = state.stream;
+    state.running = true;
+    els.talkBtn.disabled = false;
+    return true;
+  }
+
   async function beginTalk() {
-    if (!state.running || state.recording) return;
+    if (state.recording) return;
+    state.holding = true;
+    if (!(await openCamera())) {
+      state.holding = false;
+      return;
+    }
+    if (!state.holding) {
+      if (!state.timer) startLiveTimer(false);
+      return;
+    }
     state.recording = true;
     state.pressAt = Date.now();
     stopLiveTimer();
@@ -476,7 +539,7 @@
     } catch (error) {
       state.recording = false;
       els.talkBtn.classList.remove("recording");
-      els.talkBtn.textContent = "按住，说要找什么";
+      els.talkBtn.textContent = "按住说话";
       await speak("我听不见，请允许用麦克风。");
       startLiveTimer(true);
     }
@@ -505,6 +568,7 @@
   }
 
   async function endTalk(silent) {
+    state.holding = false;
     if (!state.recording) return;
     if (state.browserRec) {
       try {
@@ -550,7 +614,7 @@
     state.recording = false;
     state.browserRec = null;
     els.talkBtn.classList.remove("recording");
-    els.talkBtn.textContent = "按住，说要找什么";
+    els.talkBtn.textContent = "按住说话";
     if (text === null) {
       startLiveTimer(true);
       return;
@@ -601,6 +665,7 @@
       captureAndInfer("precise", text);
     });
   }
+  readStoredNotes();
   refreshHighlights();
   setInterval(refreshHighlights, 2000);
 })();

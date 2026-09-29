@@ -97,23 +97,17 @@ function getUserId() {
 }
 
 function loadHighlights() {
-  const value = wx.getStorageSync("memoryHighlights")
-  return Array.isArray(value) ? value.filter(Boolean).slice(0, 20) : []
+  return []
 }
 
-function saveHighlights(items) {
-  const incoming = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : []
-  if (!incoming.length) {
-    return loadHighlights()
-  }
-  const merged = []
-  incoming.concat(loadHighlights()).forEach((item) => {
-    if (merged.indexOf(item) < 0 && merged.length < 20) {
-      merged.push(item)
-    }
-  })
-  wx.setStorageSync("memoryHighlights", merged)
-  return merged
+function clearHighlights() {
+  wx.removeStorageSync("memoryHighlights")
+  return []
+}
+
+function saveHighlights() {
+  wx.removeStorageSync("memoryHighlights")
+  return []
 }
 
 function taskById(id) {
@@ -133,4 +127,5 @@ module.exports = {
   getUserId,
   loadHighlights,
   saveHighlights,
+  clearHighlights,
 }

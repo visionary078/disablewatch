@@ -5,7 +5,8 @@
 | [miniprogram/](miniprogram) | 微信小程序。开发者工具打开这个目录 |
 | [server/](server/README.md) | 识别网关和眼镜页 |
 | [DEPLOY.md](DEPLOY.md) | 部署 |
-| [docs/看见下一步_软件技术文档_v1.7.md](docs/看见下一步_软件技术文档_v1.7.md) | 软件技术文档 |
+| [docs/看见下一步_软件技术文档_v1.7.md](docs/看见下一步_软件技术文档_v1.7.md) | 软件技术文档 v1.7 |
+| [docs/看见下一步_当前判定说明.md](docs/看见下一步_当前判定说明.md) | 当前识别、记忆和两端页面的判定 |
 
 本地测试（在 `server` 目录）：
 

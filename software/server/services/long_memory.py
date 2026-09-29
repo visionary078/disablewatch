@@ -18,7 +18,11 @@ FOLLOWUP_RE = re.compile(r"^(?:看到了吗|到了吗|还在吗|这个是不是|
 NEGATION_RE = re.compile(r"不是这个|不要了|不要这个|不找了|别找|别要")
 HABIT_RE = re.compile(r"根据你的习惯|根据您的习惯|根据您上周|根据上次的记忆|根据你上次")
 PREFERENCE_RE = re.compile(r"我喜欢|我习惯|以后叫|别名")
+REMEMBER_RE = re.compile(r"记住|帮我记|别忘了|记一下|记下来")
 RECALL_RE = re.compile(r"上次|以前|之前找|刚才找|还记得|记得我|我常找|找过什么|找的是什么|我找过|过去找")
+NOTE_AGENT = "see-next-note"
+TASK_AGENT = "see-next-task"
+NOTE_TTL_SECONDS = 24 * 60 * 60
 
 
 def is_filler(text: str) -> bool:
@@ -84,6 +88,10 @@ def build_highlights(
         if not goal or goal == text:
             goal = "刚才那个"
         return [f"纠正：先不要按旧说法找{goal}"[:40]]
+    if REMEMBER_RE.search(text):
+        body = re.sub(r"^(?:请)?(?:帮我)?(?:记住|记一下|记下来|别忘了)", "", text)
+        body = body.strip(" ，,。") or text
+        return [f"记住：{body}"[:40]]
     if decision in {"new", "switch"}:
         name = str(target or "").strip()
         if name and "未确定" not in name and not is_negation(name) and not is_filler(name):
@@ -184,6 +192,46 @@ def _snippet_texts(raw: Any) -> List[str]:
     return texts[:5]
 
 
+def note_record(text: str) -> dict:
+    raw = str(text or "").strip()[:40]
+    if raw.startswith("纠正"):
+        kind, weight = "correction", 3
+    elif raw.startswith("常找"):
+        kind, weight = "find", 2
+    else:
+        kind, weight = "keep", 3
+    return {
+        "text": raw,
+        "kind": kind,
+        "weight": weight,
+        "uses": 1,
+        "updated_at": time.time(),
+    }
+
+
+def _as_record(item: Any) -> Optional[dict]:
+    if isinstance(item, str):
+        text = item.strip()
+        return note_record(text) if text else None
+    if not isinstance(item, dict):
+        return None
+    text = str(item.get("text") or "").strip()[:40]
+    if not text:
+        return None
+    base = note_record(text)
+    try:
+        uses = int(item.get("uses") or 1)
+    except (TypeError, ValueError):
+        uses = 1
+    try:
+        updated = float(item.get("updated_at") or base["updated_at"])
+    except (TypeError, ValueError):
+        updated = base["updated_at"]
+    base["uses"] = max(1, uses)
+    base["updated_at"] = updated
+    return base
+
+
 class HighlightBook:
     """本机记下的重点。不存照片。无云端密钥时也保留，供问过去的事和后台查看。"""
 
@@ -205,29 +253,76 @@ class HighlightBook:
         if not uid or not incoming:
             return self.list(uid)
         with self._lock:
-            merged: List[str] = []
-            for item in incoming + self._read(uid):
-                if item and item not in merged and len(merged) < 20:
-                    merged.append(item)
-            self._rows[uid] = merged
-            if self._conn is not None:
-                self._conn.execute(
-                    "INSERT OR REPLACE INTO highlights (user_id, payload) VALUES (?, ?)",
-                    (uid, json.dumps(merged, ensure_ascii=False)),
-                )
-                self._conn.commit()
-            return list(merged)
+            stored = {item["text"]: item for item in self._keep_fresh(uid)}
+            now = time.time()
+            for text in incoming:
+                fresh = note_record(text)
+                previous = stored.get(fresh["text"])
+                if previous:
+                    previous["uses"] = int(previous.get("uses") or 1) + 1
+                    previous["updated_at"] = now
+                    previous["weight"] = max(int(previous.get("weight") or 1), fresh["weight"])
+                else:
+                    fresh["updated_at"] = now
+                    stored[fresh["text"]] = fresh
+            ranked = sorted(
+                stored.values(),
+                key=lambda item: (item["weight"] + min(int(item["uses"]), 5) * 0.15, item["updated_at"]),
+                reverse=True,
+            )[:20]
+            self._rows[uid] = ranked
+            self._write(uid, ranked)
+            return [item["text"] for item in ranked]
 
     def list(self, user_id: str) -> List[str]:
         uid = str(user_id or "").strip()
         if not uid:
             return []
         with self._lock:
-            return list(self._read(uid))
+            rows = self._keep_fresh(uid)
+            rows.sort(key=lambda item: item["updated_at"], reverse=True)
+            return [item["text"] for item in rows]
 
-    def _read(self, user_id: str) -> List[str]:
+    def groups(self, user_id: str) -> dict:
+        uid = str(user_id or "").strip()
+        empty = {"kept": [], "finds": [], "corrections": []}
+        if not uid:
+            return empty
+        with self._lock:
+            rows = self._keep_fresh(uid)
+
+        def texts(kind: str) -> List[str]:
+            picked = [item for item in rows if item["kind"] == kind]
+            picked.sort(key=lambda item: (item["uses"], item["updated_at"]), reverse=True)
+            return [item["text"] for item in picked]
+
+        return {"kept": texts("keep"), "finds": texts("find"), "corrections": texts("correction")}
+
+    def clear(self, user_id: str) -> None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        with self._lock:
+            self._rows[uid] = []
+            if self._conn is not None:
+                self._conn.execute("DELETE FROM highlights WHERE user_id = ?", (uid,))
+                self._conn.commit()
+
+    def _keep_fresh(self, user_id: str) -> List[dict]:
+        now = time.time()
+        fresh = [
+            item
+            for item in self._read(user_id)
+            if now - float(item.get("updated_at") or 0) <= NOTE_TTL_SECONDS
+        ]
+        if len(fresh) != len(self._rows.get(user_id) or []):
+            self._rows[user_id] = fresh
+            self._write(user_id, fresh)
+        return [dict(item) for item in fresh]
+
+    def _read(self, user_id: str) -> List[dict]:
         if user_id in self._rows:
-            return list(self._rows[user_id])
+            return [dict(item) for item in self._rows[user_id]]
         if self._conn is None:
             return []
         row = self._conn.execute(
@@ -242,8 +337,18 @@ class HighlightBook:
             loaded = []
         if not isinstance(loaded, list):
             loaded = []
-        self._rows[user_id] = [str(item) for item in loaded if str(item).strip()]
-        return list(self._rows[user_id])
+        records = [record for record in (_as_record(item) for item in loaded) if record]
+        self._rows[user_id] = records
+        return [dict(item) for item in records]
+
+    def _write(self, user_id: str, rows: List[dict]) -> None:
+        if self._conn is None:
+            return
+        self._conn.execute(
+            "INSERT OR REPLACE INTO highlights (user_id, payload) VALUES (?, ?)",
+            (user_id, json.dumps(rows, ensure_ascii=False)),
+        )
+        self._conn.commit()
 
 
 class LongMemoryService:
@@ -270,17 +375,19 @@ class LongMemoryService:
     def list_highlights(self, user_id: str) -> List[str]:
         return self._book.list(user_id)
 
+    def grouped(self, user_id: str) -> dict:
+        return self._book.groups(user_id)
+
+    def forget(self, user_id: str) -> None:
+        self._book.clear(user_id)
+        self._cache.pop(str(user_id or "").strip(), None)
+
     def recall(self, user_id: str, query: str, decision: str, spoken: str) -> List[str]:
-        if not self.enabled or not str(user_id or "").strip():
+        del decision
+        if not self.enabled or not str(user_id or "").strip() or not is_recall(spoken):
             return []
-        if is_filler(spoken) or is_followup(spoken) or is_negation(spoken):
-            cached = self._cached(user_id)
-            return [] if is_negation(spoken) else list(cached or [])
-        should_search = bool(str(spoken or "").strip()) or decision == "switch"
         cached = self._cached(user_id)
-        if not should_search:
-            return list(cached or [])
-        if cached is not None and decision != "switch":
+        if cached is not None:
             return list(cached)
         fresh = self._search(user_id, query or spoken)
         if fresh is None:
@@ -288,19 +395,34 @@ class LongMemoryService:
         self._cache[user_id] = (time.monotonic(), fresh)
         return list(fresh)
 
-    def schedule_write(self, user_id: str, conversation_id: str, highlights: List[str]) -> None:
+    def schedule_write(
+        self,
+        user_id: str,
+        conversation_id: str,
+        highlights: List[str],
+        agent_id: str = "",
+    ) -> None:
         lines = [str(item).strip() for item in highlights or [] if str(item).strip()]
         if not self.enabled or not str(user_id or "").strip() or not lines:
             return
         content = "；".join(lines)
+        agent = str(agent_id or NOTE_AGENT)
 
         def run() -> None:
+            payload = {
+                "user_id": user_id,
+                "conversation_id": conversation_id or user_id,
+                "messages": [{"role": "user", "content": content}],
+                "agent_id": agent,
+            }
             try:
-                self._client.add_message(
-                    user_id=user_id,
-                    conversation_id=conversation_id or user_id,
-                    messages=[{"role": "user", "content": content}],
-                )
+                self._client.add_message(**payload)
+            except TypeError:
+                payload.pop("agent_id", None)
+                try:
+                    self._client.add_message(**payload)
+                except Exception:
+                    return
             except Exception:
                 return
 
@@ -321,7 +443,19 @@ class LongMemoryService:
 
     def _search(self, user_id: str, query: str) -> Optional[List[str]]:
         pool = ThreadPoolExecutor(max_workers=1)
-        future = pool.submit(self._client.search_memory, query=query or "当前任务", user_id=user_id)
+        query_text = query or "以前记下的事"
+
+        def search() -> Any:
+            try:
+                return self._client.search_memory(
+                    query=query_text,
+                    user_id=user_id,
+                    agent_id=NOTE_AGENT,
+                )
+            except TypeError:
+                return self._client.search_memory(query=query_text, user_id=user_id)
+
+        future = pool.submit(search)
         try:
             raw = future.result(timeout=self.timeout_s)
         except FuturesTimeout:

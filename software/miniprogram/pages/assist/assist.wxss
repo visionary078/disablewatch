@@ -85,6 +85,26 @@
   opacity: 0.86;
 }
 
+.camera-off {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  opacity: 0;
+  left: 0;
+  top: 0;
+}
+
+.memory-line {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 30rpx;
+  line-height: 1.45;
+}
+
+.memory-line.muted {
+  color: #8b93a7;
+}
+
 .section-title {
   display: block;
   margin: 12rpx 0 12rpx;

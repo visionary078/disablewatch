@@ -233,7 +233,8 @@ def build_question(intent: str, spoken_text: str, previous_question: str = "", t
         target = str(target or "").strip() or _product_target(text) or text
         return (
             f"请在当前这张照片里寻找「{target}」。这是具体寻找任务，不是泛泛看路。"
-            f"speech 必须像对人说话，例如「正在帮你找{target}，正前方货架中部较近」。"
+            f"speech 用两句短话，例如「正在帮你找{target}。在你正前方的货架，手高这一层，从你左手边数第2个」。"
+            "桌子或空白平面不要数第几个，改说靠近你这一侧、靠左或靠右。"
             "先提醒危险，再给方位；没看到就说还在帮你找、眼前看到什么，不要编造已经拿到。"
         )
     if previous_question:

@@ -25,7 +25,6 @@ from services.long_memory import (
     blend_recall,
     build_highlights,
     build_long_memory,
-    format_memory_prompt,
     is_negation,
     is_recall,
     scrub_speech,
@@ -180,17 +179,6 @@ def create_app(
         else:
             question_used = question or revision.question
         extra_prompt = format_task_context(previous, revision)
-        snippets = []
-        if uid:
-            snippets = long_term.recall(
-                uid,
-                query=spoken or question_used,
-                decision=revision.decision,
-                spoken=spoken,
-            )
-        memory_prompt = format_memory_prompt(snippets)
-        if memory_prompt:
-            extra_prompt = f"{extra_prompt}\n{memory_prompt}".strip()
 
         tmp_path = ""
         async with lock:
@@ -266,7 +254,7 @@ def create_app(
                                 result.parsed[key] = scrub_speech(
                                     str(result.parsed.get(key) or ""),
                                     spoken,
-                                    snippets,
+                                    [],
                                     rejected_target=rejected,
                                 )
                     highlight_spoken = "不要了" if model_stop and not task_spoken else task_spoken
@@ -277,9 +265,15 @@ def create_app(
                         rejected_target=previous.target if previous else "",
                     )
                     long_term.remember(uid, highlights)
-                    long_term.schedule_write(uid, sid, highlights)
                     if asking_past:
-                        past = answer_recall(long_term.list_highlights(uid))
+                        local_lines = long_term.list_highlights(uid)
+                        past_lines = local_lines or long_term.recall(
+                            uid,
+                            spoken,
+                            revision.decision,
+                            spoken,
+                        )
+                        past = answer_recall(past_lines)
                         for key in ("speech", "action"):
                             result.parsed[key] = blend_recall(
                                 past,
@@ -307,6 +301,11 @@ def create_app(
                     "model": result.model,
                     "usage": result.usage,
                     "highlights": highlights,
+                    "memory": long_term.grouped(uid) if uid else {
+                        "kept": [],
+                        "finds": [],
+                        "corrections": [],
+                    },
                     "sensors": sensors_for(
                         "task" if kind == "task" or (active_task and not model_stop) else "chat"
                     ),
@@ -381,7 +380,22 @@ def create_app(
         authorization: str = Header(default=""),
     ):
         verify_token(x_app_token, authorization)
-        return {"highlights": long_term.list_highlights(str(user_id or "").strip()[:64])}
+        uid = str(user_id or "").strip()[:64]
+        return {
+            "highlights": long_term.list_highlights(uid),
+            "memory": long_term.grouped(uid),
+        }
+
+    @app.delete("/highlights")
+    def forget_highlights(
+        user_id: str = "",
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        verify_token(x_app_token, authorization)
+        uid = str(user_id or "").strip()[:64]
+        long_term.forget(uid)
+        return {"highlights": [], "memory": long_term.grouped(uid)}
 
     if os.path.isdir(GLASSES_DIR):
 

@@ -371,6 +371,15 @@ def normalize_result(value: Dict[str, Any]) -> Dict[str, Any]:
         if not action.startswith("注意"):
             action = f"{warning}{action}"
 
+    anchor = _choice(value.get("anchor"), ALLOWED_ANCHORS)
+    level = _choice(value.get("level"), ALLOWED_LEVELS)
+    slot = _choice(value.get("slot"), ALLOWED_SLOTS)
+    if anchor in {"桌子", "台面", "平面"} and level in {"手高这一层", "再高一层", "再矮一层", "最上面", "最下面"}:
+        level = "靠近你这一侧"
+    place_index = _place_index(value.get("place_index"))
+    if anchor not in {"货架", "柜子"}:
+        place_index = 0
+
     return {
         "intent": intent,
         "scene": str(value.get("scene") or "未确定场景").strip(),
@@ -385,7 +394,71 @@ def normalize_result(value: Dict[str, Any]) -> Dict[str, Any]:
         "speech": speech or "继续观察周围。",
         "task_decision": str(value.get("task_decision") or "").strip(),
         "main_task": str(value.get("main_task") or "").strip(),
+        "anchor": anchor,
+        "level": level,
+        "slot": slot,
+        "place_index": place_index,
     }
+
+
+ALLOWED_ANCHORS = {"货架", "柜子", "桌子", "台面", "平面"}
+ALLOWED_LEVELS = {"手高这一层", "再高一层", "再矮一层", "最上面", "最下面", "靠近你这一侧", "靠里"}
+ALLOWED_SLOTS = {"最左", "靠左", "中间", "靠右", "最右"}
+
+
+def _choice(value: Any, allowed: set) -> str:
+    text = str(value or "").strip()
+    return text if text in allowed else ""
+
+
+def _place_index(value: Any) -> int:
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+    if 1 <= number <= 6:
+        return number
+    return 0
+
+
+def compose_find_speech(
+    goal: str,
+    *,
+    direction: str = "",
+    anchor: str = "",
+    level: str = "",
+    slot: str = "",
+    place_index: int = 0,
+    risk_level: str = "",
+    seen: bool = True,
+) -> str:
+    """用身体和能摸到的参照说位置。空白平面不数第几个。"""
+    prefix = "注意。" if risk_level == "high" else ""
+    face = ""
+    if direction and direction != "未确定":
+        face = f"在你{direction}"
+    anchor_name = anchor if anchor in ALLOWED_ANCHORS else ""
+    if anchor_name in {"桌子", "台面", "平面"}:
+        if level in {"手高这一层", "再高一层", "再矮一层", "最上面", "最下面"}:
+            level = "靠近你这一侧"
+        place_index = 0
+    level_name = level if level in ALLOWED_LEVELS else ""
+    on_shelf = anchor_name in {"货架", "柜子"} and 1 <= int(place_index or 0) <= 6
+    if on_shelf:
+        across = f"从你左手边数第{int(place_index)}个"
+    else:
+        across = slot if slot in ALLOWED_SLOTS else ""
+    holder = f"{face}的{anchor_name}" if face and anchor_name else (face or anchor_name)
+    parts = [part for part in (holder, level_name, across) if part]
+    place = "，".join(parts)
+    name = goal or "它"
+    if not seen:
+        if place:
+            return f"{prefix}还在帮你找{name}。先找到{place}。"
+        return f"{prefix}还在帮你找{name}。"
+    if place:
+        return f"{prefix}正在帮你找{name}。{place}。"
+    return f"{prefix}正在帮你找{name}。"
 
 
 SEARCH_INTENTS = {"find_product", "find_entrance", "find_cashier"}
@@ -429,8 +502,12 @@ def _mock_vision_result(question: str, extra_prompt: str = "") -> Dict[str, Any]
             "obstacles": ["货架"],
             "risk_level": "medium",
             "confidence": "medium",
-            "action": f"正在帮你找{goal}，正前方货架中部较近，请先停下确认。",
-            "speech": f"正在帮你找{goal}，正前方货架中部较近。",
+            "anchor": "货架",
+            "level": "手高这一层",
+            "slot": "中间",
+            "place_index": 0,
+            "action": f"正在帮你找{goal}。在你正前方的货架，手高这一层，中间。",
+            "speech": f"正在帮你找{goal}。在你正前方的货架，手高这一层，中间。",
         }
     return {
         "intent": "find_entrance",
@@ -486,21 +563,22 @@ def humanize_search_speech(
             speech = f"{helping}，{body}" if body else f"{helping}。"
     if goal:
         speech = speech.replace("目标在", f"{goal}在")
-    if should_help and len(re.sub(r"\s+", "", speech)) > 40:
+    if should_help:
         direction = str(result.get("direction") or "未确定")
-        scene = str(result.get("scene") or "").strip()
-        proximity = str(result.get("proximity") or "")
-        prefix = "注意，" if str(result.get("risk_level") or "") == "high" else ""
-        if direction != "未确定":
-            loc = direction
-            if scene and not scene.startswith("未确定") and scene not in loc:
-                loc = f"{direction}{scene}"
-            extra = proximity if proximity not in {"", "无法判断"} else ""
-            speech = f"{prefix}正在帮你找{goal}，{loc}{extra}。"
-        else:
-            seen = scene if scene and not scene.startswith("未确定") else "还没看清"
-            speech = f"{prefix}正在帮你找{goal}，{seen}。"
+        seen = direction != "未确定" or bool(result.get("anchor"))
+        speech = compose_find_speech(
+            goal,
+            direction=direction,
+            anchor=str(result.get("anchor") or ""),
+            level=str(result.get("level") or ""),
+            slot=str(result.get("slot") or ""),
+            place_index=int(result.get("place_index") or 0),
+            risk_level=str(result.get("risk_level") or ""),
+            seen=seen,
+        )
     result["speech"] = speech or result.get("speech") or "继续观察周围。"
+    if should_help:
+        result["action"] = result["speech"]
     if should_help and result.get("target") in {"", "未确定目标"}:
         result["target"] = goal
     if main_task and not result.get("main_task"):
