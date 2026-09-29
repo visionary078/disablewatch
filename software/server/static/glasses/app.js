@@ -31,6 +31,8 @@
     stream: null,
     timer: null,
     sessionId: sessionId(),
+    sensors: { camera: false, tof: false },
+    tofMm: "",
     question: DEFAULT_QUESTION,
     mainTask: "",
     lastResult: null,
@@ -76,6 +78,65 @@
     }
     if (params.get("api")) {
       localStorage.setItem("glassesApi", params.get("api").replace(/\/$/, ""));
+    }
+  }
+
+  function userId() {
+    let id = localStorage.getItem("glassesUserId");
+    if (!id) {
+      id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem("glassesUserId", id);
+    }
+    return id;
+  }
+
+  function saveHighlights(items) {
+    const incoming = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : [];
+    if (!incoming.length) return;
+    let prev = [];
+    try {
+      prev = JSON.parse(localStorage.getItem("memoryHighlights") || "[]");
+    } catch (error) {
+      prev = [];
+    }
+    const merged = [];
+    incoming.concat(Array.isArray(prev) ? prev : []).forEach((item) => {
+      if (item && merged.indexOf(item) < 0 && merged.length < 20) merged.push(item);
+    });
+    localStorage.setItem("memoryHighlights", JSON.stringify(merged));
+    renderHighlightList(merged);
+    refreshHighlights();
+  }
+
+  function renderHighlightList(items) {
+    const list = document.getElementById("highlight-list");
+    if (!list) return;
+    const rows = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : [];
+    list.replaceChildren();
+    if (!rows.length) {
+      const empty = document.createElement("li");
+      empty.className = "empty";
+      empty.textContent = "还没有记下重点。";
+      list.appendChild(empty);
+      return;
+    }
+    rows.slice(0, 20).forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      list.appendChild(li);
+    });
+  }
+
+  async function refreshHighlights() {
+    try {
+      const res = await fetch(`${apiUrl("/highlights")}?user_id=${encodeURIComponent(userId())}`, {
+        headers: headers(),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      renderHighlightList(payload.highlights);
+    } catch (error) {
+      /* 后台暂时读不到时，保留刚才画上的重点。 */
     }
   }
 
@@ -261,8 +322,11 @@
   }
 
   async function captureAndInfer(mode, spokenText) {
+    const spoken = spokenText || "";
+    const forceLook = mode === "precise" && !spoken;
     if (!state.running || state.recording) return;
-    if (state.inferring && !(mode === "precise" && spokenText)) return;
+    if (state.inferring && !(mode === "precise" && spoken)) return;
+    if (!spoken && !forceLook && !state.sensors.camera) return;
     if (!els.preview.videoWidth) return;
     state.inferring = true;
     const hunting = shortGoal(state.mainTask);
@@ -276,8 +340,12 @@
       body.append("question", state.question || DEFAULT_QUESTION);
       body.append("mode", mode);
       body.append("session_id", state.sessionId);
-      body.append("spoken_text", spokenText || "");
+      body.append("user_id", userId());
+      body.append("spoken_text", spoken);
       body.append("client", "glasses");
+      if (state.sensors.tof && state.tofMm) {
+        body.append("tof_mm", state.tofMm);
+      }
       const res = await fetch(apiUrl("/infer"), {
         method: "POST",
         headers: headers(),
@@ -303,9 +371,19 @@
       throw new Error((payload && payload.error) || "远程模型调用失败");
     }
     const result = payload.result || null;
+    saveHighlights(payload.highlights);
     const task = payload.task || {};
     const mainTask = task.main_task || (result && result.main_task) || state.mainTask || "";
     const now = Date.now();
+    if (payload.sensors && typeof payload.sensors.camera === "boolean") {
+      state.sensors = payload.sensors;
+    }
+    const understanding = payload.understanding || {};
+    const heard = document.getElementById("heard");
+    if (heard) {
+      const line = understanding.summary || (understanding.label ? `听成：${understanding.label}` : "");
+      heard.textContent = line;
+    }
     const speech = wrapTaskSpeech(
       task.decision,
       mainTask,
@@ -507,4 +585,22 @@
     localStorage.setItem("glassesToken", els.tokenInput.value.trim());
     closeSettings(true);
   }
+
+  const askForm = document.getElementById("ask-form");
+  const askInput = document.getElementById("ask-input");
+  if (askForm && askInput) {
+    askForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = askInput.value.trim();
+      if (!text) return;
+      if (!state.running) {
+        setStatus("先点开始看", "先点开始看，我才能用摄像头看这一帧。");
+        return;
+      }
+      askInput.value = "";
+      captureAndInfer("precise", text);
+    });
+  }
+  refreshHighlights();
+  setInterval(refreshHighlights, 2000);
 })();

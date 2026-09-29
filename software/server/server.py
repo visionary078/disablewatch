@@ -11,15 +11,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from minicpmo_runner import MiniCPMOAccessibilityRunner, humanize_search_speech
+from minicpmo_runner import (
+    InferenceResult,
+    MiniCPMOAccessibilityRunner,
+    humanize_search_speech,
+    sanitize_guidance,
+)
 from services.asr import ASRHandler
 from services.fusion import stabilize_live_result
+from services.long_memory import (
+    LongMemoryService,
+    answer_recall,
+    blend_recall,
+    build_highlights,
+    build_long_memory,
+    format_memory_prompt,
+    is_negation,
+    is_recall,
+    scrub_speech,
+)
+from services.sensing import band_from_tof_mm, sensors_for
 from services.task_memory import (
     TaskMemoryStore,
     apply_revision,
     format_task_context,
     revise_main_task,
 )
+from services.utterance import TASK_INTENTS, understand_speech
 
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -51,6 +69,7 @@ def create_app(
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES,
     asr_handler: Optional[ASRHandler] = None,
     task_store: Optional[TaskMemoryStore] = None,
+    long_memory: Optional[LongMemoryService] = None,
 ) -> FastAPI:
     app = FastAPI(title="看见下一步 API", version="2.3.0")
     app.add_middleware(
@@ -64,6 +83,7 @@ def create_app(
     asr_limit = int(os.getenv("MAX_ASR_BYTES", DEFAULT_MAX_ASR_BYTES))
     asr_service = asr_handler or _build_asr_handler(runner)
     memory_store = task_store or _build_task_store()
+    long_term = long_memory if long_memory is not None else build_long_memory()
 
     def verify_token(x_app_token: str = "", authorization: str = "") -> str:
         incoming = _header_token(x_app_token, authorization)
@@ -99,7 +119,9 @@ def create_app(
         model: str = Form(""),
         mode: str = Form("precise"),
         distance_band: str = Form(""),
+        tof_mm: str = Form(""),
         session_id: str = Form(""),
+        user_id: str = Form(""),
         spoken_text: str = Form(""),
         client: str = Form(""),
         x_app_token: str = Header(default="", alias="X-App-Token"),
@@ -123,31 +145,100 @@ def create_app(
             raise HTTPException(status_code=429, detail="上一帧仍在识别中，已丢弃本帧")
         spoken = str(spoken_text or "").strip()[:120]
         previous = memory_store.get(sid)
-        revision = revise_main_task(previous, spoken)
+        uid = str(user_id or "").strip()[:64]
+        model_text = runner.classify_utterance(spoken) if spoken and not is_recall(spoken) else ""
+        understood = understand_speech(spoken, model_text)
+        model_intent = understood["intent"] if understood.get("source") == "model" else ""
+        asking_past = bool(uid) and (is_recall(spoken) or model_intent == "ask_past")
+        model_stop = model_intent == "stop" or (understood.get("source") == "model" and model_intent == "stop")
+        active_task = bool(
+            previous and previous.main_task and previous.intent in TASK_INTENTS
+        )
         if spoken:
+            kind = understood.get("kind") or "chat"
+        elif infer_mode == "precise" or active_task:
+            kind = "task"
+        else:
+            kind = "chat"
+        if kind == "chat" or asking_past or model_stop:
+            task_spoken = ""
+        else:
+            task_spoken = spoken
+        if str(tof_mm or "").strip():
+            distance_band = band_from_tof_mm(tof_mm)
+        override = model_intent if model_intent in TASK_INTENTS else ""
+        revision = revise_main_task(
+            previous,
+            task_spoken,
+            intent_override=override,
+            target_override=(understood.get("target") or "") if override else "",
+        )
+        if task_spoken:
             question_used = revision.question
         elif previous and previous.question:
             question_used = previous.question
         else:
             question_used = question or revision.question
         extra_prompt = format_task_context(previous, revision)
+        snippets = []
+        if uid:
+            snippets = long_term.recall(
+                uid,
+                query=spoken or question_used,
+                decision=revision.decision,
+                spoken=spoken,
+            )
+        memory_prompt = format_memory_prompt(snippets)
+        if memory_prompt:
+            extra_prompt = f"{extra_prompt}\n{memory_prompt}".strip()
 
         tmp_path = ""
         async with lock:
             try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                    tmp.write(content)
-                    tmp_path = tmp.name
-                result = runner.infer_image(
-                    tmp_path,
-                    question_used,
-                    json_output=True,
-                    model_profile=model_profile,
-                    model_override=model,
-                    mode=infer_mode,
-                    distance_band=distance_band,
-                    extra_prompt=extra_prompt,
-                )
+                if kind == "chat":
+                    if model_stop or is_negation(spoken):
+                        chat_speech = "先停一下，这个先不找。"
+                    elif spoken and not asking_past:
+                        chat_speech = sanitize_guidance(runner.chat_reply(spoken))
+                    else:
+                        chat_speech = ""
+                    parsed_chat = {
+                        "intent": revision.intent or "general_help",
+                        "scene": "",
+                        "target": revision.target or "",
+                        "direction": "未确定",
+                        "proximity": "无法判断",
+                        "text_reading": "",
+                        "obstacles": [],
+                        "risk_level": "low",
+                        "confidence": "low",
+                        "action": chat_speech,
+                        "speech": chat_speech,
+                        "distance_band": "无法判断",
+                        "main_task": revision.main_task or "",
+                    }
+                    result = InferenceResult(
+                        answer=chat_speech,
+                        raw_answer=chat_speech,
+                        parsed=parsed_chat,
+                        latency_ms=0,
+                        profile="chat",
+                        model="chat",
+                    )
+                else:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        tmp.write(content)
+                        tmp_path = tmp.name
+                    result = runner.infer_image(
+                        tmp_path,
+                        question_used,
+                        json_output=True,
+                        model_profile=model_profile,
+                        model_override=model,
+                        mode=infer_mode,
+                        distance_band=distance_band,
+                        extra_prompt=extra_prompt,
+                    )
                 if result.parsed:
                     result.parsed["task_decision"] = revision.decision
                     if revision.target:
@@ -157,16 +248,44 @@ def create_app(
                     ):
                         revision.target = str(result.parsed.get("target"))
                     result.parsed["main_task"] = revision.main_task or result.parsed.get("target") or ""
-                if spoken or revision.main_task:
+                if task_spoken or revision.main_task:
                     memory_store.save(apply_revision(previous, revision, sid))
-                if result.parsed:
+                if result.parsed and kind == "task":
                     result.parsed = humanize_search_speech(
                         result.parsed,
                         intent=revision.intent,
                         target=revision.target,
                         main_task=revision.main_task,
                     )
-                if infer_mode == "live" and result.parsed:
+                highlights = []
+                if uid and result.parsed:
+                    rejected = previous.target if previous and (is_negation(spoken) or model_stop) else ""
+                    if kind == "task" or model_stop or is_negation(spoken):
+                        for key in ("speech", "action"):
+                            if result.parsed.get(key):
+                                result.parsed[key] = scrub_speech(
+                                    str(result.parsed.get(key) or ""),
+                                    spoken,
+                                    snippets,
+                                    rejected_target=rejected,
+                                )
+                    highlight_spoken = "不要了" if model_stop and not task_spoken else task_spoken
+                    highlights = build_highlights(
+                        highlight_spoken,
+                        revision.decision,
+                        revision.target,
+                        rejected_target=previous.target if previous else "",
+                    )
+                    long_term.remember(uid, highlights)
+                    long_term.schedule_write(uid, sid, highlights)
+                    if asking_past:
+                        past = answer_recall(long_term.list_highlights(uid))
+                        for key in ("speech", "action"):
+                            result.parsed[key] = blend_recall(
+                                past,
+                                str(result.parsed.get(key) or ""),
+                            )
+                if infer_mode == "live" and kind == "task" and result.parsed:
                     live_key = _device_key(token_id, sid)
                     prev = LIVE_LAST.get(live_key) or {}
                     result.parsed = stabilize_live_result(
@@ -187,6 +306,16 @@ def create_app(
                     "profile": result.profile,
                     "model": result.model,
                     "usage": result.usage,
+                    "highlights": highlights,
+                    "sensors": sensors_for(
+                        "task" if kind == "task" or (active_task and not model_stop) else "chat"
+                    ),
+                    "understanding": {
+                        "kind": kind,
+                        "label": "问以前" if asking_past else ("先停下" if model_stop else (understood.get("label") or "闲聊")),
+                        "summary": understood.get("summary") or "",
+                        "source": "model" if model_intent else "rule",
+                    },
                     "task": {
                         "session_id": sid,
                         "decision": revision.decision,
@@ -244,6 +373,15 @@ def create_app(
                 return await asr_service.transcribe(content, audio.filename or "audio.mp3")
             except Exception as exc:
                 raise HTTPException(status_code=502, detail=f"语音识别失败：{exc}") from exc
+
+    @app.get("/highlights")
+    def highlights(
+        user_id: str = "",
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        verify_token(x_app_token, authorization)
+        return {"highlights": long_term.list_highlights(str(user_id or "").strip()[:64])}
 
     if os.path.isdir(GLASSES_DIR):
 

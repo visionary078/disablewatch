@@ -73,7 +73,9 @@ function infer(settings, filePath, options) {
         model: payload.model || "",
         distance_band: payload.distanceBand || "",
         session_id: payload.sessionId || "",
+        user_id: payload.userId || "",
         spoken_text: payload.spokenText || "",
+        tof_mm: payload.tofMm || "",
       },
       timeout: 120000,
       success(res) {

@@ -168,6 +168,29 @@ class OpenAICompatibleVisionClient:
             usage=dict(response.get("usage") or {}),
         )
 
+    def complete_text(self, profile: ModelProfile, prompt: str) -> RemoteModelResponse:
+        payload: Dict[str, Any] = {
+            "model": profile.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+            "max_completion_tokens": profile.max_tokens,
+        }
+        response = self._request_json(profile, payload)
+        try:
+            content = response["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ModelAPIError("模型 API 返回内容缺少 choices[0].message.content。") from exc
+        text = self._content_to_text(content).strip()
+        if not text:
+            raise ModelAPIError("模型 API 返回了空内容。")
+        return RemoteModelResponse(
+            text=text,
+            profile=profile.name,
+            model=str(response.get("model") or profile.model),
+            response_id=str(response.get("id") or ""),
+            usage=dict(response.get("usage") or {}),
+        )
+
     @staticmethod
     def _content_to_text(content: Any) -> str:
         if isinstance(content, str):
@@ -228,6 +251,11 @@ class ModelGateway:
             raise ModelConfigurationError(f"默认模型配置不存在：{default_profile}")
         self.default_profile = default_profile
         self.client = OpenAICompatibleVisionClient()
+
+    def complete_text(self, prompt: str, profile_name: str = "", timeout: int = 2) -> RemoteModelResponse:
+        selected = profile_name.strip() or self.default_profile
+        profile = replace(self.profiles[selected], timeout=max(1, int(timeout)), max_tokens=40)
+        return self.client.complete_text(profile, prompt)
 
     def complete(
         self,
