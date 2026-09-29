@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+node_modules/
+software/server/.env
+software/server/.venv/
+software/server/benchmark_results.json
+software/server/task_memory.sqlite
+software/miniprogram/project.private.config.json
+
+software/server/static/glasses/look/*.jpg
+hardware/look-desktop.png
