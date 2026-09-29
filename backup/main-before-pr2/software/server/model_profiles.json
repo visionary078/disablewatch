@@ -17,18 +17,6 @@
         "thinking": {"type": "disabled"}
       }
     },
-    "chat": {
-      "label": "闲聊文本模型",
-      "provider": "openai_compatible",
-      "base_url": "https://your-chat-provider.example/v1",
-      "base_url_env": "CHAT_MODEL_API_BASE_URL",
-      "model": "your-chat-model",
-      "model_env": "CHAT_MODEL_NAME",
-      "api_key_env": "CHAT_MODEL_API_KEY",
-      "timeout": 20,
-      "max_tokens": 120,
-      "temperature": 0.4
-    },
     "backup": {
       "label": "备用视觉模型",
       "provider": "openai_compatible",

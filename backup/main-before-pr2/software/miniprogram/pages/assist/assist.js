@@ -88,8 +88,6 @@ Page({
     this._resumeLive = false
     this._mainTaskText = ""
     this._sessionId = config.getSessionId()
-    this._sensors = { camera: false, tof: false }
-    this._tofMm = ""
     this.refreshSettings()
   },
 
@@ -498,11 +496,6 @@ Page({
       return
     }
 
-    const spoken = spokenText || ""
-    const forceLook = mode === "precise" && !spoken
-    if (!spoken && !forceLook && this._sensors && this._sensors.camera === false) {
-      return
-    }
     this._inferring = true
     const isPrecise = mode === "precise"
     this.setData({
@@ -522,9 +515,7 @@ Page({
         modelProfile: this.settings.modelProfile,
         distanceBand,
         sessionId: this._sessionId || config.getSessionId(),
-        userId: config.getUserId(),
-        spokenText: spoken,
-        tofMm: this._sensors && this._sensors.tof ? this._tofMm || "" : "",
+        spokenText: spokenText || "",
       })
       this.handleInferPayload(payload, mode)
     } catch (error) {
@@ -572,10 +563,6 @@ Page({
       ? a11y.buildResultAnnouncement(result)
       : "结果无法解析，请再试一次。"
     const speech = result ? result.speech || announcement : "请再试一次。"
-    if (payload.sensors && typeof payload.sensors.camera === "boolean") {
-      this._sensors = payload.sensors
-    }
-    config.saveHighlights(payload.highlights)
     const task = payload.task || {}
     const mainTask = task.main_task || (result && result.main_task) || this.data.mainTaskText || ""
     const speakNow =

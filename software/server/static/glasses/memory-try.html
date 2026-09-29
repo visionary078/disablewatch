@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>长期记忆试一试</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "PingFang SC", sans-serif;
+        background: #0b1220;
+        color: #f4f7fb;
+      }
+      main { max-width: 40rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+      h1 { font-size: 1.4rem; margin: 0 0 0.4rem; }
+      p.note { color: #b7c3d6; line-height: 1.5; }
+      label { display: block; margin: 1rem 0 0.4rem; }
+      textarea, button {
+        font: inherit;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 4.5rem;
+        border-radius: 0.6rem;
+        border: 1px solid #2a3a55;
+        background: #121a2b;
+        color: inherit;
+        padding: 0.7rem;
+      }
+      .row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; }
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 0.55rem 0.9rem;
+        background: #d7e4ff;
+        color: #0b1220;
+        cursor: pointer;
+      }
+      button.ghost { background: transparent; color: #d7e4ff; border: 1px solid #3d5278; }
+      button:disabled { opacity: 0.5; cursor: wait; }
+      section {
+        margin-top: 1.2rem;
+        padding: 0.9rem 1rem;
+        border-radius: 0.8rem;
+        background: #121a2b;
+      }
+      h2 { font-size: 0.95rem; margin: 0 0 0.4rem; color: #9eb0cc; }
+      .speech { font-size: 1.15rem; line-height: 1.5; }
+      ul { margin: 0.2rem 0 0; padding-left: 1.2rem; }
+      .empty { color: #8ea0ba; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>长期记忆试一试</h1>
+      <p class="note">
+        这是本机模拟窗口，不打开摄像头。输入你要说的话，看这一帧会播什么，以及记下了哪句重点。
+        没填写记忆密钥时，不会连云端，重点只留在这个窗口里。
+      </p>
+      <label for="spoken">你说</label>
+      <textarea id="spoken" placeholder="例如：帮我找无糖可乐"></textarea>
+      <div class="row">
+        <button id="send" type="button">发这一帧</button>
+        <button class="ghost" type="button" data-say="帮我找无糖可乐">帮我找无糖可乐</button>
+        <button class="ghost" type="button" data-say="不是这个">不是这个</button>
+        <button class="ghost" type="button" data-say="不要了">不要了</button>
+        <button class="ghost" type="button" data-say="看到了吗">看到了吗</button>
+        <button class="ghost" type="button" data-say="嗯">嗯</button>
+        <button class="ghost" id="reset" type="button">清空这次</button>
+      </div>
+      <section>
+        <h2>这一帧会说</h2>
+        <p id="speech" class="speech empty">还没发。</p>
+      </section>
+      <section>
+        <h2>这一帧的重点</h2>
+        <ul id="frame"></ul>
+      </section>
+      <section>
+        <h2>记在这台设备上的重点</h2>
+        <ul id="saved"></ul>
+      </section>
+    </main>
+    <script>
+      const spoken = document.getElementById("spoken");
+      const send = document.getElementById("send");
+      const speech = document.getElementById("speech");
+      const frame = document.getElementById("frame");
+      const saved = document.getElementById("saved");
+
+      function id(key, prefix) {
+        let value = localStorage.getItem(key);
+        if (!value) {
+          value = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          localStorage.setItem(key, value);
+        }
+        return value;
+      }
+
+      function renderList(node, items, emptyText) {
+        node.innerHTML = "";
+        const list = Array.isArray(items) ? items.filter(Boolean) : [];
+        if (!list.length) {
+          const li = document.createElement("li");
+          li.className = "empty";
+          li.textContent = emptyText;
+          node.appendChild(li);
+          return;
+        }
+        list.forEach((item) => {
+          const li = document.createElement("li");
+          li.textContent = item;
+          node.appendChild(li);
+        });
+      }
+
+      function loadSaved() {
+        try {
+          return JSON.parse(localStorage.getItem("memoryTryHighlights") || "[]");
+        } catch (error) {
+          return [];
+        }
+      }
+
+      function remember(items) {
+        const incoming = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : [];
+        if (!incoming.length) return loadSaved();
+        const merged = [];
+        incoming.concat(loadSaved()).forEach((item) => {
+          if (item && merged.indexOf(item) < 0 && merged.length < 20) merged.push(item);
+        });
+        localStorage.setItem("memoryTryHighlights", JSON.stringify(merged));
+        return merged;
+      }
+
+      function jpeg() {
+        const raw = atob(
+          "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxISEhUTEhIVFhUVFRUVFRUVFRUWFxUVFRUYHSggGBolGxUVITEhJSkrLi4uFx8zODMtNygtLisBCgoKDg0OGhAQGy0lHyUtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAbAAABBQEBAAAAAAAAAAAAAAADAAIEBQYBB//EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGf/9k="
+        );
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+        return new Blob([bytes], { type: "image/jpeg" });
+      }
+
+      async function submit(text) {
+        const line = String(text || "").trim();
+        spoken.value = line;
+        send.disabled = true;
+        speech.textContent = "正在看这一帧…";
+        speech.classList.remove("empty");
+        try {
+          const body = new FormData();
+          body.append("image", jpeg(), "scene.jpg");
+          body.append("spoken_text", line);
+          body.append("session_id", id("memoryTrySession", "s"));
+          body.append("user_id", id("memoryTryUser", "u"));
+          body.append("mode", "precise");
+          body.append("client", "memory-try");
+          const res = await fetch("/infer", { method: "POST", body });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(payload.detail || "识别失败");
+          const result = payload.result || {};
+          speech.textContent = result.speech || result.action || "这一帧没有可播的话。";
+          renderList(frame, payload.highlights, "这一帧没有新的重点。");
+          renderList(saved, remember(payload.highlights), "还没有记下重点。");
+        } catch (error) {
+          speech.textContent = error.message || "发送失败";
+        } finally {
+          send.disabled = false;
+        }
+      }
+
+      send.addEventListener("click", () => submit(spoken.value));
+      document.querySelectorAll("[data-say]").forEach((button) => {
+        button.addEventListener("click", () => submit(button.getAttribute("data-say")));
+      });
+      document.getElementById("reset").addEventListener("click", () => {
+        localStorage.removeItem("memoryTrySession");
+        localStorage.removeItem("memoryTryHighlights");
+        speech.textContent = "已清空这次对话。";
+        speech.classList.remove("empty");
+        renderList(frame, [], "这一帧没有新的重点。");
+        renderList(saved, [], "还没有记下重点。");
+      });
+      renderList(frame, [], "这一帧没有新的重点。");
+      renderList(saved, loadSaved(), "还没有记下重点。");
+    </script>
+  </body>
+</html>

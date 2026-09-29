@@ -87,35 +87,6 @@ function getSessionId() {
   return id
 }
 
-function getUserId() {
-  let id = String(wx.getStorageSync("userId") || "")
-  if (!id) {
-    id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-    wx.setStorageSync("userId", id)
-  }
-  return id
-}
-
-function loadHighlights() {
-  const value = wx.getStorageSync("memoryHighlights")
-  return Array.isArray(value) ? value.filter(Boolean).slice(0, 20) : []
-}
-
-function saveHighlights(items) {
-  const incoming = Array.isArray(items) ? items.map((item) => String(item || "").trim()).filter(Boolean) : []
-  if (!incoming.length) {
-    return loadHighlights()
-  }
-  const merged = []
-  incoming.concat(loadHighlights()).forEach((item) => {
-    if (merged.indexOf(item) < 0 && merged.length < 20) {
-      merged.push(item)
-    }
-  })
-  wx.setStorageSync("memoryHighlights", merged)
-  return merged
-}
-
 function taskById(id) {
   return TASKS.find((item) => item.id === id) || TASKS[4]
 }
@@ -130,7 +101,4 @@ module.exports = {
   markSafetySeen,
   taskById,
   getSessionId,
-  getUserId,
-  loadHighlights,
-  saveHighlights,
 }

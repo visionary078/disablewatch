@@ -3,3 +3,5 @@ uvicorn[standard]>=0.29
 pydantic>=2
 python-multipart>=0.0.9
 edge-tts>=6.1.0
+# 可选。只有配置了 MEMOS_API_KEY 才会导入；没装这个包时识别照常启动。
+MemoryOS>=2.0

@@ -136,63 +136,6 @@ class MiniCPMOAccessibilityRunner:
             self.load()
         return self.gateway.public_profiles() if self.gateway else {}
 
-    def classify_utterance(self, text: str) -> str:
-        spoken = str(text or "").strip()
-        if not spoken or self.mock:
-            return ""
-        if self.gateway is None:
-            try:
-                self.load()
-            except Exception:
-                return ""
-        if self.gateway is None:
-            return ""
-        prompt = (
-            "根据用户这句话判断用意。只输出一行 JSON，不要解释。\n"
-            '{"kind":"task|chat","intent":"找东西|指路|看价格|看障碍|问以前|先停下|其他",'
-            '"target":"短目标或空","summary":"一句口语"}\n'
-            "task 只用于找东西、指路、看价格、看障碍。普通聊天、问好、问天气是 chat。\n"
-            "指路是问往哪边走、出入口或收银台在哪一侧，不是过马路。\n"
-            f"用户说：{spoken[:80]}"
-        )
-        try:
-            reply = self.gateway.complete_text(prompt, timeout=6)
-        except Exception:
-            return ""
-        return str(reply.text or "").strip()
-
-    def chat_reply(self, text: str) -> str:
-        spoken = str(text or "").strip()
-        if not spoken or self.mock:
-            return "我在听。你要找东西，或者问往哪边走，直接说就行。"
-        if self.gateway is None:
-            try:
-                self.load()
-            except Exception:
-                return "我在听。你要找东西，或者问往哪边走，直接说就行。"
-        profile_name = self._chat_profile_name()
-        prompt = (
-            "你在陪一位视障使用者说话。这句不是找东西，也不是问路。"
-            "用一两句口语回答。不要说正在找什么，不要说米、厘米或步数，不要建议过马路。\n"
-            f"用户说：{spoken[:80]}"
-        )
-        try:
-            reply = self.gateway.complete_text(prompt, profile_name=profile_name, timeout=8)
-        except Exception:
-            return "我在听。你要找东西，或者问往哪边走，直接说就行。"
-        cleaned = sanitize_guidance(str(reply.text or "").strip())
-        return cleaned or "我在听。你要找东西，或者问往哪边走，直接说就行。"
-
-    def _chat_profile_name(self) -> str:
-        if self.gateway is None:
-            return ""
-        profile = self.gateway.profiles.get("chat")
-        if profile is None or not profile.api_key:
-            return ""
-        if "example" in profile.base_url:
-            return ""
-        return "chat"
-
     def infer_image(
         self,
         image_path: str,
@@ -404,20 +347,6 @@ def _mock_vision_result(question: str, extra_prompt: str = "") -> Dict[str, Any]
         if match and match.group(1).strip() not in {"无", ""}:
             goal = match.group(1).strip()[:12]
             intent = intent if intent in SEARCH_INTENTS else "find_product"
-    if intent == "guide_way":
-        return {
-            "intent": "guide_way",
-            "scene": "通道",
-            "target": "往哪边走",
-            "direction": "右前方",
-            "proximity": "较近",
-            "text_reading": "",
-            "obstacles": ["展示架"],
-            "risk_level": "medium",
-            "confidence": "medium",
-            "action": "往右前方走，先注意面前的展示架。",
-            "speech": "往右前方走，先注意面前的展示架。",
-        }
     if intent == "find_product" and goal:
         return {
             "intent": "find_product",
@@ -462,13 +391,6 @@ def humanize_search_speech(
         used_intent,
     )
     speech = str(result.get("speech") or "").strip()
-    if used_intent == "guide_way":
-        if not re.search(r"往|走", speech):
-            speech = f"正在帮你看往哪边走。{speech}".strip()
-        result["speech"] = speech
-        result["action"] = speech
-        result["intent"] = used_intent
-        return result
     should_help = bool(goal) and (
         used_intent in SEARCH_INTENTS or "找" in str(main_task or result.get("main_task") or "")
     )

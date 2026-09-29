@@ -39,7 +39,6 @@ class ServerMiniProgramTests(unittest.TestCase):
             files={"image": ("scene.jpg", b"fake-jpeg", "image/jpeg")},
             data={
                 "question": "前方安全吗？",
-                "spoken_text": "前方安全吗？",
                 "mode": "live",
                 "distance_band": "较近",
             },

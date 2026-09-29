@@ -13,23 +13,10 @@ from typing import Any, Dict, List, Optional
 INTENT_PATTERNS = (
     ("find_cashier", re.compile(r"收银|付款|结账|服务台|买单")),
     ("find_entrance", re.compile(r"入口|大门|正门|出门|门口")),
-    (
-        "guide_way",
-        re.compile(r"指路|怎么走|往哪|带我去|从哪走|怎么去|走哪|去哪|找路|出口|往前走|怎么过去"),
-    ),
     ("read_price", re.compile(r"价格|多少钱|价签|标签|售价")),
     ("avoid_obstacle", re.compile(r"障碍|台阶|安全|能不能走|路面|有没有坑")),
     ("find_product", re.compile(r"找|买|拿|要一份|帮我找|商品|有没有|我要")),
 )
-INTENT_LABELS = {
-    "find_product": "找东西",
-    "find_entrance": "指路",
-    "find_cashier": "指路",
-    "guide_way": "指路",
-    "read_price": "看价格",
-    "avoid_obstacle": "看障碍",
-    "general_help": "看眼前",
-}
 FILLER_RE = re.compile(r"^(嗯+|啊+|呃+|哦+|你好|在吗|喂)$")
 GOAL_STRIP_RE = re.compile(
     r"请|帮我|一下|先提醒风险|再给出方向|看不清不要猜测|找|买|拿|要一份|商品|我要"
@@ -172,10 +159,6 @@ def detect_intent(text: str) -> str:
     return ""
 
 
-def intent_label(intent: str) -> str:
-    return INTENT_LABELS.get(str(intent or ""), "看眼前")
-
-
 def _product_target(text: str) -> str:
     cleaned = GOAL_STRIP_RE.sub("", text)
     return cleaned.strip(" ：:，,。")[:24]
@@ -189,8 +172,6 @@ def speech_goal(target: str = "", main_task: str = "", intent: str = "") -> str:
         return "入口"
     if intent == "find_cashier":
         return "收银台"
-    if intent == "guide_way":
-        return "往哪边走"
     cleaned = GOAL_STRIP_RE.sub("", str(main_task or ""))
     cleaned = re.sub(r"[：:，,。；;]+", "", cleaned).strip()
     return cleaned[:12]
@@ -207,7 +188,7 @@ def looks_like_product_request(text: str) -> bool:
     return True
 
 
-def build_question(intent: str, spoken_text: str, previous_question: str = "", target: str = "") -> str:
+def build_question(intent: str, spoken_text: str, previous_question: str = "") -> str:
     text = spoken_text.strip()
     if intent == "find_entrance":
         return (
@@ -223,14 +204,8 @@ def build_question(intent: str, spoken_text: str, previous_question: str = "", t
         return text if ("价格" in text or "多少钱" in text) else "请读取看得见的商品名称和价格，看不清的文字不要猜测。"
     if intent == "avoid_obstacle":
         return text if len(text) > 4 else "请判断当前是否安全，并告诉我目标在哪个方向。"
-    if intent == "guide_way":
-        return (
-            "用户要的是指路：根据这一帧说往哪一边走，不要把它说成在找一件商品。"
-            "speech 用口语，例如「往右前方走，先注意面前的架子」。"
-            "不要说米或步数，不要建议过马路。"
-        )
     if intent == "find_product":
-        target = str(target or "").strip() or _product_target(text) or text
+        target = _product_target(text) or text
         return (
             f"请在当前这张照片里寻找「{target}」。这是具体寻找任务，不是泛泛看路。"
             f"speech 必须像对人说话，例如「正在帮你找{target}，正前方货架中部较近」。"
@@ -241,14 +216,9 @@ def build_question(intent: str, spoken_text: str, previous_question: str = "", t
     return text or "请判断当前是否安全，并告诉我目标在哪个方向。"
 
 
-def revise_main_task(
-    previous: Optional[TaskMemory],
-    spoken_text: str,
-    intent_override: str = "",
-    target_override: str = "",
-) -> TaskRevision:
+def revise_main_task(previous: Optional[TaskMemory], spoken_text: str) -> TaskRevision:
     text = str(spoken_text or "").replace("\n", " ").strip()
-    detected = str(intent_override or "").strip() or detect_intent(text)
+    detected = detect_intent(text)
     if not text:
         if previous and previous.main_task:
             return TaskRevision(
@@ -272,16 +242,10 @@ def revise_main_task(
 
     if not detected and looks_like_product_request(text):
         detected = "find_product"
-    named = str(target_override or "").strip()[:24]
-    if detected == "find_product":
-        target = named or _product_target(text)
-    elif detected == "guide_way":
-        target = named or "往哪边走"
-    else:
-        target = named or text[:24]
+    target = _product_target(text) if detected == "find_product" else text[:24]
     if not previous or not previous.main_task:
         intent = detected or "general_help"
-        question = build_question(intent, text, target=target)
+        question = build_question(intent, text)
         return TaskRevision(
             decision="new",
             intent=intent,
@@ -300,7 +264,7 @@ def revise_main_task(
 
     if switch_like and not (same_intent and refine_like):
         intent = detected or prev_intent
-        question = build_question(intent, text, target=target)
+        question = build_question(intent, text)
         return TaskRevision(
             decision="switch",
             intent=intent,
@@ -320,7 +284,7 @@ def revise_main_task(
         question = (
             f"{previous.question} 用户补充：{text}"
             if previous.question
-            else build_question(intent, text, target=target)
+            else build_question(intent, text)
         )
         return TaskRevision(
             decision="refine",
@@ -371,8 +335,7 @@ def format_task_context(memory: Optional[TaskMemory], revision: TaskRevision) ->
         f"本次语音：{revision.spoken_text or '无'}\n"
         f"判定：{revision.decision}（{revision.reason}）\n"
         f"当前主任务：{revision.main_task or '无'}\n"
-        f"{'当前要去的方向' if revision.intent == 'guide_way' else '当前要找的东西'}：{goal or '无'}\n"
-        f"听成：{intent_label(revision.intent)}\n"
+        f"当前要找的东西：{goal or '无'}\n"
         "请立刻在当前画面中执行该寻找，不要只确认已经记下。"
         "speech 用「正在帮你找」的口吻，像身边的人在帮忙，不要像填表。"
         "若判定为 keep 或 refine，不要丢掉原目标；若为 switch 或 new，改答新目的。"

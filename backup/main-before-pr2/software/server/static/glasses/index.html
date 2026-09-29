@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#070b14" />
+    <meta name="theme-color" content="#0b1220" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <title>看见下一步 · 眼镜</title>
@@ -12,39 +12,16 @@
   <body>
     <a class="skip" href="#start-btn">跳到开始</a>
     <header id="header" class="header" aria-label="长按打开设置">
-      <div>
-        <p class="eyebrow">看见下一步</p>
-        <h1 id="status">抬头看前方，腾出手来</h1>
-      </div>
-      <p id="meta" class="meta">未开始</p>
+      <p class="eyebrow">看见下一步 · 眼镜</p>
+      <h1 id="status">抬头看前方，腾出手来</h1>
     </header>
 
-    <main class="stage">
-      <section class="agent see" aria-label="眼前">
-        <div class="agent-label">
-          <span class="dot"></span>
-          眼前
-        </div>
-        <video id="preview" class="preview" playsinline autoplay muted></video>
-        <p id="heard" class="heard">听成：看眼前</p>
-        <p id="speech" class="speech" role="status" aria-live="assertive">
-          戴上或把镜头朝前。点开始后，我边看边说哪边、近不近。
-        </p>
-      </section>
-
-      <section class="agent memory" aria-label="记下的重点">
-        <div class="agent-label">记下的重点</div>
-        <ul id="highlight-list" class="highlights">
-          <li class="empty">还没有记下重点。</li>
-        </ul>
-        <form id="ask-form" class="ask">
-          <label for="ask-input">问过去的事</label>
-          <div class="ask-row">
-            <input id="ask-input" type="text" maxlength="120" placeholder="例如：我上次找的是什么" />
-            <button id="ask-btn" type="submit">问这句</button>
-          </div>
-        </form>
-      </section>
+    <main>
+      <p id="speech" class="speech" role="status" aria-live="assertive">
+        戴上或把镜头朝前。点开始后，我边看边说哪边、近不近。
+      </p>
+      <p id="meta" class="meta">未开始</p>
+      <video id="preview" class="preview" playsinline autoplay muted></video>
     </main>
 
     <div id="gate" class="gate" role="dialog" aria-labelledby="gate-title">
@@ -52,7 +29,7 @@
         <p class="eyebrow">看见下一步</p>
         <h2 id="gate-title">朝哪看，说哪边</h2>
         <p>
-          一边看眼前，一边记下你要找的重点。你问以前的事，我就按记下的短句回答。手杖照常用，过马路别靠我。
+          戴上以后我跟着你的视线看。你说要找什么，我就说在哪一侧、近不近。手杖照常用，过马路别靠我。
         </p>
         <button id="start-btn" type="button">开始看</button>
         <button id="gate-settings" class="ghost" type="button">使用密码</button>
