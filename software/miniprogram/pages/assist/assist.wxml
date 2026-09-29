@@ -1,19 +1,17 @@
 <view class="page">
-  <view class="status-bar">
-    <view
-      class="status"
-      aria-role="text"
-      aria-live="polite"
-      aria-atomic="true"
-      aria-label="{{statusLabel}}"
-      bindlongpress="onOpenSettings"
-    >
-      {{statusText}}
-    </view>
+  <view
+    class="status"
+    aria-role="text"
+    aria-live="polite"
+    aria-atomic="true"
+    aria-label="{{statusLabel}}"
+    bindlongpress="onOpenSettings"
+  >
+    {{statusText}}
   </view>
 
   <camera
-    class="camera"
+    class="camera camera-off"
     device-position="back"
     flash="off"
     resolution="medium"
@@ -24,127 +22,22 @@
     aria-hidden="true"
   ></camera>
 
-  <scroll-view class="panel" scroll-y enhanced show-scrollbar="{{false}}">
-    <view class="row">
-      <button
-        class="btn {{liveOn ? 'btn-stop' : 'btn-primary'}}"
-        aria-role="button"
-        aria-label="{{liveAria}}"
-        aria-disabled="{{busy || recording}}"
-        bindtap="onToggleLive"
-      >
-        {{liveLabel}}
-      </button>
-      <button
-        class="btn btn-primary"
-        aria-role="button"
-        aria-label="精确确认当前画面"
-        aria-busy="{{busy}}"
-        disabled="{{busy || recording}}"
-        bindtap="onPreciseConfirm"
-      >
-        精确确认
-      </button>
-    </view>
+  <view
+    class="btn voice-btn {{recording ? 'recording' : ''}}"
+    aria-role="button"
+    aria-label="{{voiceAria}}"
+    aria-pressed="{{recording}}"
+    hover-class="voice-hover"
+    hover-stay-time="80"
+    catchtouchstart="onVoicePress"
+    catchtouchend="onVoiceRelease"
+    catchtouchcancel="onVoiceRelease"
+  >
+    {{voiceLabel}}
+  </view>
 
-    <view class="row">
-      <view
-        class="btn voice-btn {{recording ? 'recording' : ''}}"
-        aria-role="button"
-        aria-label="{{voiceAria}}"
-        aria-pressed="{{recording}}"
-        hover-class="voice-hover"
-        hover-stay-time="80"
-        catchtouchstart="onVoicePress"
-        catchtouchend="onVoiceRelease"
-        catchtouchcancel="onVoiceRelease"
-      >
-        {{voiceLabel}}
-      </view>
-    </view>
+  <text class="result-speech" aria-live="assertive">{{resultSpeech}}</text>
+  <text class="memory-line">正在找：{{memoryNow}}</text>
 
-    <view class="row">
-      <button
-        class="btn btn-secondary"
-        aria-role="button"
-        aria-label="重新播报上一次行动提示"
-        bindtap="onReplay"
-      >
-        重新播报
-      </button>
-      <button
-        class="btn btn-secondary"
-        aria-role="button"
-        aria-label="立即停止播报"
-        bindtap="onStopSpeech"
-      >
-        停止播报
-      </button>
-    </view>
-
-    <text class="section-title">当前任务</text>
-    <view class="tasks">
-      <button
-        wx:for="{{tasks}}"
-        wx:key="id"
-        class="task {{taskId === item.id ? 'task-on' : ''}}"
-        aria-role="button"
-        aria-label="{{item.ariaLabel}}"
-        aria-pressed="{{taskId === item.id}}"
-        data-id="{{item.id}}"
-        bindtap="onSelectTask"
-      >
-        {{item.label}}
-      </button>
-    </view>
-
-    <text class="section-title">当前问题</text>
-    <textarea
-      class="question"
-      value="{{question}}"
-      maxlength="120"
-      auto-height
-      aria-label="当前识别问题，可修改后再精确确认。也可以点语音说出需求。"
-      bindinput="onQuestionInput"
-    />
-
-    <view class="result {{riskClass}}">
-      <text class="result-speech">{{resultSpeech}}</text>
-      <view wx:if="{{result}}" class="result-grid">
-        <text wx:if="{{mainTaskText}}">主任务：{{mainTaskText}}</text>
-        <text>风险：{{riskText}}</text>
-        <text>方向：{{result.direction}}</text>
-        <text>接近：{{result.proximity}}</text>
-        <text>距离带：{{distanceBandText}}</text>
-        <text wx:if="{{result.text_reading}}">文字：{{result.text_reading}}</text>
-        <text>障碍：{{obstacleText}}</text>
-        <text>场景：{{result.scene}}</text>
-        <text>目标：{{result.target}}</text>
-        <text>置信度：{{confidenceText}}</text>
-      </view>
-      <text wx:else class="result-empty">还没有识别结果。打开实时辅助或点精确确认。</text>
-    </view>
-    <text class="sr-live" aria-live="assertive" aria-atomic="true">{{spokenLive}}</text>
-
-    <view class="row">
-      <button
-        class="btn btn-secondary"
-        aria-role="button"
-        aria-label="{{showDebug ? '隐藏调试信息' : '显示调试信息'}}"
-        bindtap="onToggleDebug"
-      >
-        {{showDebug ? "隐藏调试" : "显示调试"}}
-      </button>
-    </view>
-
-    <view wx:if="{{showDebug}}" class="debug" aria-hidden="true">
-      <text>状态：{{debugStatus}}</text>
-      <text>耗时：{{debugLatency}}</text>
-      <text>配置：{{debugProfile}}</text>
-      <text>模型：{{debugModel}}</text>
-      <text>原始输出：{{debugRaw}}</text>
-    </view>
-
-    <text class="safety" aria-role="text" aria-label="{{safetyText}}">{{safetyText}}</text>
-  </scroll-view>
+  <text class="safety" aria-role="text">手杖照常用。过马路别靠我。</text>
 </view>

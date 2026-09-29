@@ -155,6 +155,27 @@ function transcribe(settings, filePath) {
   })
 }
 
+function clearHighlights(settings, userId) {
+  return new Promise((resolve, reject) => {
+    wx.request({
+      url: `${settings.apiBaseUrl}/highlights?user_id=${encodeURIComponent(userId || "")}`,
+      method: "DELETE",
+      header: requestHeaders(settings),
+      timeout: 8000,
+      success(res) {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(res.data || {})
+          return
+        }
+        reject(new Error("没删掉"))
+      },
+      fail(error) {
+        reject(new Error(unwrapError(error, "没删掉")))
+      },
+    })
+  })
+}
+
 function synthesizeSpeech(settings, text) {
   return new Promise((resolve, reject) => {
     wx.request({
@@ -193,4 +214,5 @@ module.exports = {
   infer,
   transcribe,
   synthesizeSpeech,
+  clearHighlights,
 }
