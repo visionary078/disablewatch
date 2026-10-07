@@ -29,6 +29,9 @@
     inferring: false,
     recording: false,
     holding: false,
+    holdToken: null,
+    ending: false,
+    stopTimer: null,
     stream: null,
     timer: null,
     sessionId: sessionId(),
@@ -36,18 +39,23 @@
     tofMm: "",
     question: DEFAULT_QUESTION,
     mainTask: "",
+    finishedLabel: "",
     lastResult: null,
     lastSpeakAt: 0,
     holdLiveSpeech: 0,
+    lastSpoken: "",
     audio: null,
     mediaRecorder: null,
     chunks: [],
     pressAt: 0,
+    tapToTalk: false,
   };
 
   hydrateSettingsFromUrl();
 
   if (els.startBtn) els.startBtn.addEventListener("click", startAssist);
+  const openSettingsBtn = document.getElementById("open-settings");
+  if (openSettingsBtn) openSettingsBtn.addEventListener("click", () => openSettings(false));
   if (els.gateSettings) els.gateSettings.addEventListener("click", () => openSettings(true));
   if (els.saveSettings) els.saveSettings.addEventListener("click", saveSettings);
   if (els.closeSettings) els.closeSettings.addEventListener("click", () => closeSettings(false));
@@ -154,7 +162,9 @@
     const now = document.getElementById("memory-now");
     if (now) {
       const goal = String(mainTask || "").trim();
-      now.textContent = goal ? `正在找：${goal}` : "正在找：还没有";
+      if (goal) now.textContent = `正在找：${goal}`;
+      else if (state.finishedLabel) now.textContent = `已经找到：${state.finishedLabel}`;
+      else now.textContent = "正在找：还没有";
     }
   }
 
@@ -194,6 +204,13 @@
     return next;
   }
 
+  function setRiskClass(risk) {
+    document.body.classList.remove("risk-high", "risk-medium", "risk-low");
+    if (risk === "high" || risk === "medium" || risk === "low") {
+      document.body.classList.add(`risk-${risk}`);
+    }
+  }
+
   function setStatus(text, speech) {
     els.status.textContent = text;
     if (speech) {
@@ -216,15 +233,16 @@
       .replace(/[。．，,、！!？?；;：:]/g, "");
   }
 
-  function shouldSpeak(previous, next, lastSpeakAt, now) {
+  function shouldSpeak(previous, next) {
     if (!next) return false;
     const nextSpeech = compactSpeech(next.speech || next.action || "");
     if (!nextSpeech) return false;
     if (!previous) return true;
     if (next.risk_level === "high" && previous.risk_level !== "high") return true;
-    if (nextSpeech !== compactSpeech(previous.speech || previous.action || "")) return true;
-    const stillUncertain = next.direction === "未确定" || nextSpeech.indexOf("继续观察") >= 0;
-    return stillUncertain && now - lastSpeakAt >= SPEAK_GAP_MS;
+    if (nextSpeech === compactSpeech(previous.speech || previous.action || "")) return false;
+    const direction = next.direction || "";
+    if (!direction || direction === "未确定" || direction === (previous.direction || "")) return false;
+    return true;
   }
 
   function wrapTaskSpeech(decision, mainTask, speech) {
@@ -288,6 +306,7 @@
       return;
     }
     els.preview.srcObject = state.stream;
+    els.preview.classList.add("is-live");
     if (els.gate) {
       els.gate.classList.add("hidden");
       els.gate.setAttribute("hidden", "");
@@ -313,6 +332,7 @@
       state.stream = null;
     }
     els.preview.srcObject = null;
+    els.preview.classList.remove("is-live");
     if (els.preciseBtn) els.preciseBtn.disabled = true;
     if (els.stopBtn) els.stopBtn.disabled = true;
     if (els.gate) {
@@ -320,7 +340,7 @@
       els.gate.removeAttribute("hidden");
       els.gate.removeAttribute("aria-hidden");
     }
-    document.body.className = "";
+    setRiskClass("");
     setStatus("已停下", "需要时再说开始看。");
   }
 
@@ -357,10 +377,8 @@
 
   async function captureAndInfer(mode, spokenText) {
     const spoken = spokenText || "";
-    const forceLook = mode === "precise" && !spoken;
     if (!state.running || state.recording) return;
     if (state.inferring && !(mode === "precise" && spoken)) return;
-    if (!spoken && !forceLook && !state.sensors.camera) return;
     if (!els.preview.videoWidth) return;
     state.inferring = true;
     const hunting = shortGoal(state.mainTask);
@@ -406,8 +424,17 @@
     }
     const result = payload.result || null;
     const task = payload.task || {};
-    const mainTask = task.main_task || (result && result.main_task) || state.mainTask || "";
-    state.mainTask = mainTask;
+    const found = Boolean(task.found) || task.decision === "done";
+    const incoming = String(task.main_task || (result && result.main_task) || "").trim();
+    if (found) {
+      state.finishedLabel = shortGoal(incoming || state.mainTask) || state.finishedLabel || "它";
+      state.mainTask = "";
+      state.question = DEFAULT_QUESTION;
+    } else if (incoming) {
+      state.finishedLabel = "";
+      state.mainTask = incoming;
+    }
+    const mainTask = state.mainTask;
     renderMemory(payload.memory, mainTask);
     saveHighlights(payload.highlights);
     const now = Date.now();
@@ -425,18 +452,24 @@
       mainTask,
       (result && (result.speech || result.action)) || "请再试一次。"
     );
-    const speakNow = mode === "precise" || shouldSpeak(state.lastResult, result, state.lastSpeakAt, now);
-    if (mode === "live" && now < state.holdLiveSpeech) {
+    const speakNow = mode === "precise" || found || shouldSpeak(state.lastResult, result);
+    if (mode === "live" && now < state.holdLiveSpeech && !found) {
       state.lastResult = result;
       return;
     }
     state.lastResult = result;
     state.mainTask = mainTask;
-    if (task.question) state.question = task.question;
+    if (!found && task.question) state.question = task.question;
     const hunting = shortGoal(mainTask);
     const risk = (result && result.risk_level) || "";
-    document.body.className = risk ? `risk-${risk}` : "";
-    setStatus(hunting ? `正在帮你找${hunting}` : "正在看", speech);
+    setRiskClass(risk);
+    if (found) {
+      setStatus("已经找到", speakNow ? speech : "");
+      const nowLine = document.getElementById("memory-now");
+      if (nowLine) nowLine.textContent = "正在找：已经找到";
+    } else {
+      setStatus(hunting ? `正在帮你找${hunting}` : "正在看", speakNow ? speech : "");
+    }
     els.meta.textContent = [
       result && result.direction ? result.direction : "",
       result && result.distance_band ? result.distance_band : "",
@@ -444,20 +477,63 @@
       .filter(Boolean)
       .join(" · ");
     vibrate(risk);
-    if (speakNow) {
+    if (speakNow && compactSpeech(speech) !== state.lastSpoken) {
       state.lastSpeakAt = now;
+      state.lastSpoken = compactSpeech(speech);
       speak(speech);
     }
   }
 
   function bindHold(button, onStart, onEnd) {
+    let pointerId = null;
+    let downAt = 0;
+
+    const release = (event) => {
+      if (pointerId == null) return;
+      if (event && event.pointerId != null && event.pointerId !== pointerId) return;
+      const heldMs = Date.now() - downAt;
+      pointerId = null;
+      if (event && event.type === "pointerup" && heldMs < 500) {
+        state.tapToTalk = true;
+        showListening();
+        return;
+      }
+      onEnd(Boolean(event && event.type === "pointercancel"));
+    };
+
     button.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
       event.preventDefault();
-      button.setPointerCapture(event.pointerId);
+      if (state.recording || state.holding) {
+        pointerId = null;
+        onEnd(false);
+        return;
+      }
+      pointerId = event.pointerId;
+      downAt = Date.now();
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch (error) {
+        /* 捕获失败时，仍由 window 上的松开事件结束。 */
+      }
       onStart();
     });
-    button.addEventListener("pointerup", () => onEnd(false));
-    button.addEventListener("pointercancel", () => onEnd(true));
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    window.addEventListener("blur", () => release(null));
+  }
+
+  function releaseTalkButton() {
+    state.tapToTalk = false;
+    els.talkBtn.classList.remove("recording");
+    els.talkBtn.textContent = "点一下说话";
+  }
+
+  function showListening() {
+    if (!state.recording) return;
+    els.talkBtn.classList.add("recording");
+    els.talkBtn.textContent = state.tapToTalk ? "再点一下结束" : "松开结束";
+    if (state.tapToTalk) setStatus("正在听你说话", "说完再点一下结束。");
   }
 
   function bindLongPress(node, onLong) {
@@ -477,6 +553,11 @@
     if (event.repeat) return;
     if (event.code === "Space") {
       event.preventDefault();
+      if (state.recording || state.holding) {
+        endTalk(false);
+        return;
+      }
+      state.pressAt = Date.now();
       beginTalk();
     } else if (event.code === "Enter") {
       captureAndInfer("precise");
@@ -486,36 +567,95 @@
   }
 
   function onKeyUp(event) {
-    if (event.code === "Space") endTalk(false);
+    if (event.code !== "Space" || state.tapToTalk) return;
+    if (Date.now() - state.pressAt < 500) {
+      state.tapToTalk = true;
+      showListening();
+      return;
+    }
+    endTalk(false);
   }
 
-  async function openCamera() {
-    if (state.running && state.stream) return true;
+  function setMicLine(text, connected) {
+    const line = document.getElementById("mic-line");
+    const retry = document.getElementById("reconnect-mic");
+    if (line) line.textContent = text;
+    if (retry) retry.hidden = connected;
+  }
+
+  function micTrackLive() {
+    return Boolean(state.stream && state.stream.getAudioTracks().some((track) => track.readyState === "live"));
+  }
+
+  async function openMic(options) {
+    const announce = !options || options.announce !== false;
+    if (micTrackLive()) {
+      setMicLine("麦克风已连接", true);
+      return true;
+    }
+    setMicLine("正在连接麦克风", false);
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      if (!state.stream) state.stream = audioStream;
+      else audioStream.getAudioTracks().forEach((track) => state.stream.addTrack(track));
+      setMicLine("麦克风已连接", true);
+      return true;
+    } catch (error) {
+      const denied = error && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError");
+      const message = denied ? "请允许使用麦克风，再点重连。" : "没有找到可用的麦克风。";
+      setMicLine(message, false);
+      if (announce) await speak(denied ? "请允许使用麦克风。" : "没有找到可用的麦克风。");
+      return false;
+    }
+  }
+
+  async function openCamera(options) {
+    const announce = !options || options.announce !== false;
+    const videoLive =
+      state.stream && state.stream.getVideoTracks().some((track) => track.readyState === "live");
+    if (state.running && videoLive) return true;
+    setStatus("正在打开摄像头");
     try {
       state.stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
+        audio: false,
       });
     } catch (error) {
-      setStatus("无法打开摄像头", "请允许摄像头和麦克风后，再按住说话。");
-      await speak("请允许摄像头和麦克风后，再按住说话。");
+      const denied = error && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError");
+      const message = denied ? "请允许使用摄像头。" : "没有找到可用的摄像头。";
+      setStatus(denied ? "需要摄像头权限" : "无法打开摄像头", message);
+      if (announce) await speak(message);
       return false;
     }
     els.preview.srcObject = state.stream;
+    els.preview.muted = true;
+    els.preview.classList.add("is-live");
+    try {
+      await els.preview.play();
+    } catch (error) {
+      /* 自动播放被拦住时，画面仍会在有帧之后显示。 */
+    }
     state.running = true;
     els.talkBtn.disabled = false;
+    if (!state.recording) setStatus("摄像头已打开", "点一下，说要找什么。");
+    if (!state.recording && !state.timer) startLiveTimer(true);
     return true;
   }
 
   async function beginTalk() {
-    if (state.recording) return;
+    if (state.recording || state.holding) return;
+    const token = {};
+    state.holdToken = token;
     state.holding = true;
-    if (!(await openCamera())) {
-      state.holding = false;
+    state.ending = false;
+    const opened = await openCamera();
+    if (state.holdToken !== token || !state.holding) {
+      if (opened && state.running && !state.timer) startLiveTimer(false);
       return;
     }
-    if (!state.holding) {
-      if (!state.timer) startLiveTimer(false);
+    if (!opened) {
+      state.holding = false;
+      state.holdToken = null;
       return;
     }
     state.recording = true;
@@ -523,26 +663,81 @@
     stopLiveTimer();
     stopSpeak();
     els.talkBtn.classList.add("recording");
-    els.talkBtn.textContent = "松开结束";
-    setStatus("正在录音，请说话", "正在听你说要找什么。");
-    if (startBrowserSpeech()) return;
+    showListening();
+    if (!state.tapToTalk) setStatus("正在录音，请说话", "正在听你说要找什么。");
+    if (!(await openMic({ announce: true }))) {
+      state.recording = false;
+      releaseTalkButton();
+      await speak("我听不见，请允许用麦克风。");
+      startLiveTimer(true);
+      return;
+    }
+    if (!state.recording || state.holdToken !== token) return;
     try {
       state.chunks = [];
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      state.mediaRecorder = new MediaRecorder(state.stream, { mimeType: mime });
+      const audioTracks = state.stream.getAudioTracks().filter((track) => track.readyState === "live");
+      if (!audioTracks.length) throw new Error("no-audio");
+      const recordStream = new MediaStream(audioTracks);
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
+      state.mediaRecorder = mime
+        ? new MediaRecorder(recordStream, { mimeType: mime })
+        : new MediaRecorder(recordStream);
       state.mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size) state.chunks.push(event.data);
       };
       state.mediaRecorder.start();
+      setMicLine("正在收音", true);
     } catch (error) {
       state.recording = false;
-      els.talkBtn.classList.remove("recording");
-      els.talkBtn.textContent = "按住说话";
+      releaseTalkButton();
       await speak("我听不见，请允许用麦克风。");
       startLiveTimer(true);
     }
+  }
+
+  async function blobToWav(blob) {
+    const audioCtx = new AudioContext();
+    try {
+      const decoded = await audioCtx.decodeAudioData(await blob.arrayBuffer());
+      const rate = 16000;
+      const frames = Math.max(1, Math.ceil(decoded.duration * rate));
+      const offline = new OfflineAudioContext(1, frames, rate);
+      const source = offline.createBufferSource();
+      source.buffer = decoded;
+      source.connect(offline.destination);
+      source.start(0);
+      const rendered = await offline.startRendering();
+      return pcmToWav(rendered.getChannelData(0), rate);
+    } finally {
+      audioCtx.close();
+    }
+  }
+
+  function pcmToWav(samples, rate) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = (offset, text) => {
+      for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+    };
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, "data");
+    view.setUint32(40, samples.length * 2, true);
+    let offset = 44;
+    for (let i = 0; i < samples.length; i += 1, offset += 2) {
+      const sample = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    }
+    return new Blob([buffer], { type: "audio/wav" });
   }
 
   function startBrowserSpeech() {
@@ -550,17 +745,48 @@
     if (!Rec) return false;
     const rec = new Rec();
     rec.lang = "zh-CN";
-    rec.interimResults = false;
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec._started = false;
+    rec._stopRequested = false;
+    rec._text = "";
+    rec.onstart = () => {
+      rec._started = true;
+      if (!rec._stopRequested) return;
+      try {
+        rec.stop();
+      } catch (error) {
+        finishTalk(rec._silent ? null : rec._text);
+        return;
+      }
+      watchRecognitionEnd(rec);
+    };
     rec.onresult = (event) => {
-      const text = Array.from(event.results)
+      rec._text = Array.from(event.results)
         .map((item) => item[0].transcript)
         .join("")
         .trim();
-      finishTalk(text);
     };
-    rec.onerror = () => {};
+    rec.onerror = (event) => {
+      if (!state.recording) return;
+      const code = event && event.error;
+      if (state.tapToTalk && !rec._stopRequested && code !== "not-allowed" && code !== "service-not-allowed") return;
+      finishTalk(rec._silent ? null : rec._text);
+    };
     rec.onend = () => {
-      if (state.recording) finishTalk("");
+      if (!state.recording) return;
+      if (state.tapToTalk && !rec._stopRequested && Date.now() - state.pressAt < 60000) {
+        setTimeout(() => {
+          if (!state.recording || rec._stopRequested || state.browserRec !== rec) return;
+          try {
+            rec.start();
+          } catch (error) {
+            /* 这一轮没接上，等用户再点一下结束。 */
+          }
+        }, 250);
+        return;
+      }
+      finishTalk(rec._silent ? null : rec._text);
     };
     state.browserRec = rec;
     rec.start();
@@ -568,14 +794,26 @@
   }
 
   async function endTalk(silent) {
+    const tapped = state.tapToTalk;
     state.holding = false;
-    if (!state.recording) return;
+    state.holdToken = null;
+    releaseTalkButton();
+    if (!state.recording || state.ending) return;
+    state.ending = true;
+    setStatus("正在识别", tapped ? "正在识别刚才的话。" : "松开了，正在识别刚才的话。");
     if (state.browserRec) {
-      try {
-        state.browserRec.stop();
-      } catch (error) {
-        finishTalk("");
+      const rec = state.browserRec;
+      rec._silent = silent;
+      rec._stopRequested = true;
+      if (rec._started) {
+        try {
+          rec.stop();
+        } catch (error) {
+          finishTalk(silent ? null : "");
+          return;
+        }
       }
+      watchRecognitionEnd(rec);
       return;
     }
     const held = Date.now() - state.pressAt;
@@ -598,11 +836,23 @@
       recorder.onstop = () => resolve(new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }));
       recorder.stop();
     });
+    let wav;
+    try {
+      wav = await blobToWav(blob);
+    } catch (error) {
+      finishTalk("");
+      return;
+    }
     try {
       const body = new FormData();
-      body.append("audio", blob, "speech.webm");
+      body.append("audio", wav, "speech.wav");
       const res = await fetch(apiUrl("/asr"), { method: "POST", headers: headers(), body });
       const payload = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setStatus("口令不对", "请在设置里填写使用密码。");
+        finishTalk(null);
+        return;
+      }
       if (!res.ok) throw new Error(payload.detail || "没听清");
       finishTalk(String(payload.text || "").trim());
     } catch (error) {
@@ -610,25 +860,50 @@
     }
   }
 
+  function watchRecognitionEnd(rec) {
+    if (state.stopTimer) clearTimeout(state.stopTimer);
+    state.stopTimer = setTimeout(() => {
+      state.stopTimer = null;
+      if (!state.recording || state.browserRec !== rec) return;
+      try {
+        rec.abort();
+      } catch (error) {
+        /* 识别已经结束 */
+      }
+      finishTalk(rec._silent ? null : "");
+    }, 2500);
+  }
+
   async function finishTalk(text) {
+    if (!state.recording && !state.ending) return;
+    state.ending = false;
     state.recording = false;
+    state.holding = false;
     state.browserRec = null;
-    els.talkBtn.classList.remove("recording");
-    els.talkBtn.textContent = "按住说话";
-    if (text === null) {
-      startLiveTimer(true);
-      return;
+    if (state.stopTimer) {
+      clearTimeout(state.stopTimer);
+      state.stopTimer = null;
     }
-    if (!text) {
-      setStatus("没听清", "没听清，请按住再说一次。");
-      await speak("没听清，请按住再说一次。");
+    releaseTalkButton();
+    if (micTrackLive()) setMicLine("麦克风已连接", true);
+    try {
+      if (text === null) {
+        startLiveTimer(true);
+        return;
+      }
+      if (!text) {
+        setStatus("没听清", "没听清，请再说一次。");
+        await speak("没听清，请再说一次。");
+        startLiveTimer(true);
+        return;
+      }
+      setStatus(`听到：${text}`, `听到：${text}，正在帮你找`);
+      await captureAndInfer("precise", text);
+      state.holdLiveSpeech = Date.now() + 4000;
       startLiveTimer(true);
-      return;
+    } finally {
+      if (!state.recording) openMic({ announce: false });
     }
-    setStatus(`听到：${text}`, `听到：${text}，正在帮你找`);
-    await captureAndInfer("precise", text);
-    state.holdLiveSpeech = Date.now() + 4000;
-    startLiveTimer(true);
   }
 
   function openSettings(fromGate) {
@@ -665,7 +940,61 @@
       captureAndInfer("precise", text);
     });
   }
+  const openCameraBtn = document.getElementById("open-camera");
+  if (openCameraBtn) openCameraBtn.addEventListener("click", () => openCamera({ announce: true }));
+  const reconnectMicBtn = document.getElementById("reconnect-mic");
+  if (reconnectMicBtn) reconnectMicBtn.addEventListener("click", () => openMic({ announce: true }));
   readStoredNotes();
-  refreshHighlights();
-  setInterval(refreshHighlights, 2000);
+  ensureLocalToken().finally(() => {
+    refreshHighlights();
+    setInterval(refreshHighlights, 2000);
+    openCamera({ announce: false })
+      .then(() => openMic({ announce: false }))
+      .then(() => beginAssignedTask());
+  });
+
+  function assignedTask() {
+    const value = new URLSearchParams(location.search).get("task") || "";
+    return value.replace(/\s+/g, " ").trim().slice(0, 80);
+  }
+
+  async function beginAssignedTask() {
+    const task = assignedTask();
+    if (!task) return;
+    for (let i = 0; i < 20; i += 1) {
+      if (state.running && els.preview.videoWidth) break;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    if (!state.running || !els.preview.videoWidth || state.recording) return;
+    state.sessionId = `task${Date.now().toString(36)}`;
+    localStorage.setItem("glassesSessionId", state.sessionId);
+    state.mainTask = task;
+    renderMemory(null, task);
+    setStatus(`正在找${task}`, `正在找${task}`);
+    await captureAndInfer("precise", task);
+    if (!state.recording && state.sensors.camera) startLiveTimer(true);
+  }
+
+  function localDemoHost() {
+    const host = location.hostname;
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+    const parts = host.split(".").map((item) => Number(item));
+    if (parts.length !== 4 || parts.some((item) => !Number.isInteger(item) || item < 0 || item > 255)) return false;
+    if (parts[0] === 10 || (parts[0] === 192 && parts[1] === 168)) return true;
+    return parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31;
+  }
+
+  async function ensureLocalToken() {
+    if (settings().appToken) return;
+    if (!localDemoHost()) return;
+    try {
+      const res = await fetch("/local-app-token");
+      if (!res.ok) return;
+      const payload = await res.json();
+      const token = String((payload && payload.token) || "");
+      if (token) localStorage.setItem("glassesToken", token);
+    } catch (error) {
+      /* 本机口令没拿到时，设置页仍可手填。 */
+    }
+  }
 })();

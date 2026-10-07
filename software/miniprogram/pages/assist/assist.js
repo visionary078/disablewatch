@@ -501,10 +501,6 @@ Page({
     }
 
     const spoken = spokenText || ""
-    const forceLook = mode === "precise" && !spoken
-    if (!spoken && !forceLook && this._sensors && this._sensors.camera === false) {
-      return
-    }
     this._inferring = true
     const isPrecise = mode === "precise"
     this.setData({

@@ -18,7 +18,9 @@
 ## 架构
 
 ```text
-微信小程序 或 眼镜页 /glasses
+微信小程序（手机自己的摄像头）
+或 手机本地程序（WiFi 摄像头的 JPEG + 眼镜上的这句话，client=phone）
+或 旧演示 /glasses（本机摄像头）
       │ 第一视角照片 + 语音 + 任务
       ▼
 FastAPI server.py（鉴权、主任务记忆、清洗、TTS/ASR）

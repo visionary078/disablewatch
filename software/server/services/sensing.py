@@ -9,6 +9,30 @@ def sensors_for(kind: str) -> dict:
     return {"camera": needed, "tof": needed}
 
 
+LOCATE_INTENTS = {"find_product", "find_entrance", "find_cashier"}
+KNOWN_DIRECTIONS = {"左侧", "左前方", "正前方", "右前方", "右侧"}
+PLACE_ANCHORS = {"货架", "柜子", "桌子", "台面", "平面"}
+
+
+def object_found(parsed: dict, intent: str) -> bool:
+    """找东西的任务已经指出具体位置时，这条任务可以结束。"""
+    if str(intent or "") not in LOCATE_INTENTS or not isinstance(parsed, dict):
+        return False
+    direction = str(parsed.get("direction") or "")
+    if direction not in KNOWN_DIRECTIONS:
+        return False
+    confidence = str(parsed.get("confidence") or "low").lower()
+    if confidence not in {"medium", "high"}:
+        return False
+    speech = str(parsed.get("speech") or "")
+    if any(token in speech for token in ("还在帮你找", "没看到", "没有看到", "继续观察")):
+        return False
+    anchor = str(parsed.get("anchor") or "")
+    if anchor in PLACE_ANCHORS:
+        return True
+    return "在你" in speech
+
+
 def band_from_tof_mm(value) -> str:
     try:
         millimeters = float(value)

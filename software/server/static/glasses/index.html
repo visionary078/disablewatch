@@ -4,26 +4,48 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#070b14" />
-    <title>看见下一步 · 眼镜</title>
+    <title>看见下一步 · 手机</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
-  <body class="glasses-only">
-    <video id="preview" class="preview preview-off" playsinline autoplay muted></video>
-    <p id="status" class="sr-only">按住说话</p>
-    <p id="speech" class="sr-only" role="status" aria-live="assertive">按住按钮，说要找什么。</p>
-    <p id="meta" class="sr-only"></p>
-    <button id="talk-btn" class="talk-only" type="button">按住说话</button>
-    <div id="settings" class="settings hidden" role="dialog" aria-labelledby="settings-title">
-      <div class="gate-card">
-        <h2 id="settings-title">连接设置</h2>
-        <label for="api-input">服务器地址</label>
-        <input id="api-input" type="url" autocomplete="off" />
-        <label for="token-input">使用密码</label>
-        <input id="token-input" type="password" autocomplete="off" />
-        <button id="save-settings" type="button">保存</button>
-        <button id="close-settings" class="ghost" type="button">关闭</button>
+  <body class="phone-site">
+    <main class="site">
+      <p class="site-brand">看见下一步</p>
+      <div class="phone">
+        <div class="phone-screen">
+          <header id="header" class="status-bar">
+            <span class="island" aria-hidden="true"></span>
+            <p id="status" class="status">正在打开摄像头</p>
+            <button id="open-settings" class="gear" type="button" aria-label="连接设置">设置</button>
+          </header>
+          <div class="camera-wrap">
+            <video id="preview" class="preview" playsinline autoplay muted></video>
+            <button id="open-camera" class="camera-placeholder" type="button">打开摄像头</button>
+          </div>
+          <section class="panel">
+            <p id="speech" class="speech" role="status" aria-live="assertive">点一下，说要找什么。</p>
+            <p id="heard" class="heard"></p>
+            <p id="memory-now" class="memory-now">正在找：还没有</p>
+            <p id="meta" class="meta-line"></p>
+            <p id="mic-line" class="mic-line">正在连接麦克风</p>
+            <button id="reconnect-mic" class="mic-retry" type="button">重连麦克风</button>
+            <button id="talk-btn" class="voice-btn" type="button">点一下说话</button>
+            <p class="safety">手杖照常用。过马路别靠我。</p>
+          </section>
+          <div class="home-bar" aria-hidden="true"></div>
+          <div id="settings" class="settings hidden" role="dialog" aria-labelledby="settings-title">
+            <div class="gate-card">
+              <h2 id="settings-title">连接设置</h2>
+              <label for="api-input">服务器地址</label>
+              <input id="api-input" type="url" autocomplete="off" />
+              <label for="token-input">使用密码</label>
+              <input id="token-input" type="password" autocomplete="off" />
+              <button id="save-settings" type="button">保存</button>
+              <button id="close-settings" class="ghost" type="button">关闭</button>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-    <script src="./app.js"></script>
+    </main>
+    <script src="./app.js?v=11"></script>
   </body>
 </html>

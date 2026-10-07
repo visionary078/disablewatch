@@ -2,6 +2,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Dict, Optional
 
 from model_api import (
@@ -17,6 +18,7 @@ from prompts import (
 )
 from services.fusion import direction_from_text, is_uncertain_speech
 from services.task_memory import detect_intent, speech_goal, _product_target
+from services.utterance import needs_live_info
 
 ALLOWED_DISTANCE_BANDS = {"一臂内", "较近", "较远", "无法判断"}
 DISTANCE_BAND_HINTS = {
@@ -151,7 +153,7 @@ class MiniCPMOAccessibilityRunner:
             "根据用户这句话判断用意。只输出一行 JSON，不要解释。\n"
             '{"kind":"task|chat","intent":"找东西|指路|看价格|看障碍|问以前|先停下|其他",'
             '"target":"短目标或空","summary":"一句口语"}\n'
-            "task 只用于找东西、指路、看价格、看障碍。普通聊天、问好、问天气是 chat。\n"
+            "task 只用于找东西、指路、看价格、看障碍。问好、闲聊、天气、新闻、今天发生的事是 chat。\n"
             "指路是问往哪边走、出入口或收银台在哪一侧，不是过马路。\n"
             f"用户说：{spoken[:80]}"
         )
@@ -170,28 +172,28 @@ class MiniCPMOAccessibilityRunner:
                 self.load()
             except Exception:
                 return "我在听。你要找东西，或者问往哪边走，直接说就行。"
-        profile_name = self._chat_profile_name()
+        live = needs_live_info(spoken)
         prompt = (
-            "你在陪一位视障使用者说话。这句不是找东西，也不是问路。"
-            "用一两句口语回答。不要说正在找什么，不要说米、厘米或步数，不要建议过马路。\n"
+            "你是视障使用者身边的聊天助手。你不看画面，不找东西，不指路。\n"
+            f"今天是 {date.today().isoformat()}。\n"
+            "天气、新闻、今天发生的事，只根据联网结果回答。\n"
+            "最多两句短话，适合朗读。用户没说城市时只说一个地方，不要把两个城市连在一起。\n"
+            "不要念网址，不要说正在找，不要说米、厘米或步数，不要建议过马路。\n"
+            "查不到就说没查到，不要编。\n"
             f"用户说：{spoken[:80]}"
         )
         try:
-            reply = self.gateway.complete_text(prompt, profile_name=profile_name, timeout=8)
+            reply = self.gateway.complete_chat(prompt, web_search=live, timeout=20)
         except Exception:
+            if live:
+                return "我没查到最新的消息。你要找东西或问路，直接说就行。"
             return "我在听。你要找东西，或者问往哪边走，直接说就行。"
-        cleaned = sanitize_guidance(str(reply.text or "").strip())
-        return cleaned or "我在听。你要找东西，或者问往哪边走，直接说就行。"
-
-    def _chat_profile_name(self) -> str:
-        if self.gateway is None:
-            return ""
-        profile = self.gateway.profiles.get("chat")
-        if profile is None or not profile.api_key:
-            return ""
-        if "example" in profile.base_url:
-            return ""
-        return "chat"
+        cleaned = _speakable_chat(str(reply.text or ""))
+        if cleaned:
+            return cleaned
+        if live:
+            return "我没查到最新的消息。你要找东西或问路，直接说就行。"
+        return "我在听。你要找东西，或者问往哪边走，直接说就行。"
 
     def infer_image(
         self,
@@ -597,6 +599,15 @@ def apply_distance_band(parsed: Dict[str, Any], distance_band: str) -> Dict[str,
     if hint and not any(token in speech for token in ("较近", "较远", "已接近", "一臂")):
         result["speech"] = sanitize_guidance(f"{speech}{hint}")
     return result
+
+
+def _speakable_chat(text: str) -> str:
+    cleaned = re.sub(r"https?://\S+", "", str(text or ""))
+    cleaned = re.sub(r"正在帮你找[^。]*。?", "", cleaned)
+    cleaned = re.sub(r"\s+", "", cleaned).strip()
+    sentences = [part for part in re.split(r"(?<=[。！？])", cleaned) if part.strip()]
+    cleaned = "".join(sentences[:2]) if sentences else cleaned
+    return cleaned[:72]
 
 
 def sanitize_guidance(text: str) -> str:

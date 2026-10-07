@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import io
+import ipaddress
 import os
 import tempfile
 from collections import defaultdict
@@ -29,7 +30,7 @@ from services.long_memory import (
     is_recall,
     scrub_speech,
 )
-from services.sensing import band_from_tof_mm, sensors_for
+from services.sensing import band_from_tof_mm, object_found
 from services.task_memory import (
     TaskMemoryStore,
     apply_revision,
@@ -90,6 +91,13 @@ def create_app(
             raise HTTPException(status_code=401, detail="业务口令无效")
         return incoming or "anonymous"
 
+    @app.get("/local-app-token")
+    def local_app_token(request: Request):
+        host = request.client.host if request.client else ""
+        if not _lan_client(host):
+            raise HTTPException(status_code=404, detail="not found")
+        return {"token": required_token}
+
     @app.get("/health")
     def health():
         return {
@@ -122,6 +130,7 @@ def create_app(
         session_id: str = Form(""),
         user_id: str = Form(""),
         spoken_text: str = Form(""),
+        # client=phone：图来自 WiFi 摄像头，这句话来自眼镜。字段和其它端一样。
         client: str = Form(""),
         x_app_token: str = Header(default="", alias="X-App-Token"),
         authorization: str = Header(default=""),
@@ -151,12 +160,17 @@ def create_app(
         asking_past = bool(uid) and (is_recall(spoken) or model_intent == "ask_past")
         model_stop = model_intent == "stop" or (understood.get("source") == "model" and model_intent == "stop")
         active_task = bool(
-            previous and previous.main_task and previous.intent in TASK_INTENTS
+            previous
+            and previous.main_task
+            and not previous.done
+            and previous.intent in TASK_INTENTS
         )
         if spoken:
             kind = understood.get("kind") or "chat"
-        elif infer_mode == "precise" or active_task:
+        elif active_task:
             kind = "task"
+        elif infer_mode in {"live", "precise"}:
+            kind = "watch"
         else:
             kind = "chat"
         if kind == "chat" or asking_past or model_stop:
@@ -167,18 +181,26 @@ def create_app(
             distance_band = band_from_tof_mm(tof_mm)
         override = model_intent if model_intent in TASK_INTENTS else ""
         revision = revise_main_task(
-            previous,
+            previous if kind != "watch" else None,
             task_spoken,
             intent_override=override,
             target_override=(understood.get("target") or "") if override else "",
         )
-        if task_spoken:
+        if kind == "watch":
+            question_used = (
+                "请看眼前这一帧。有危险先说注意。"
+                "用一句短话说眼前有什么。不要说正在找什么。"
+            )
+            extra_prompt = ""
+        elif task_spoken:
             question_used = revision.question
-        elif previous and previous.question:
+            extra_prompt = format_task_context(previous, revision)
+        elif active_task and previous and previous.question:
             question_used = previous.question
+            extra_prompt = format_task_context(previous, revision)
         else:
             question_used = question or revision.question
-        extra_prompt = format_task_context(previous, revision)
+            extra_prompt = format_task_context(previous, revision) if kind == "task" else ""
 
         tmp_path = ""
         async with lock:
@@ -236,8 +258,9 @@ def create_app(
                     ):
                         revision.target = str(result.parsed.get("target"))
                     result.parsed["main_task"] = revision.main_task or result.parsed.get("target") or ""
-                if task_spoken or revision.main_task:
-                    memory_store.save(apply_revision(previous, revision, sid))
+                if kind == "watch" and result.parsed:
+                    result.parsed["main_task"] = ""
+                    result.parsed["intent"] = result.parsed.get("intent") or "general_help"
                 if result.parsed and kind == "task":
                     result.parsed = humanize_search_speech(
                         result.parsed,
@@ -279,7 +302,7 @@ def create_app(
                                 past,
                                 str(result.parsed.get(key) or ""),
                             )
-                if infer_mode == "live" and kind == "task" and result.parsed:
+                if infer_mode == "live" and kind in {"task", "watch"} and result.parsed:
                     live_key = _device_key(token_id, sid)
                     prev = LIVE_LAST.get(live_key) or {}
                     result.parsed = stabilize_live_result(
@@ -291,6 +314,13 @@ def create_app(
                         "direction": str(result.parsed.get("direction") or ""),
                         "speech": str(result.parsed.get("speech") or result.parsed.get("action") or ""),
                     }
+                found = bool(result.parsed) and kind == "task" and object_found(result.parsed, revision.intent)
+                if found and result.parsed is not None:
+                    result.parsed["task_decision"] = "done"
+                if kind == "task" and (task_spoken or revision.main_task):
+                    remembered = apply_revision(previous, revision, sid)
+                    remembered.done = bool(found) if task_spoken or found else bool(previous and previous.done)
+                    memory_store.save(remembered)
                 return {
                     "status": result.status,
                     "result": result.parsed,
@@ -306,21 +336,32 @@ def create_app(
                         "finds": [],
                         "corrections": [],
                     },
-                    "sensors": sensors_for(
-                        "task" if kind == "task" or (active_task and not model_stop) else "chat"
-                    ),
+                    "sensors": {
+                        "camera": (not model_stop) and kind in {"task", "watch"},
+                        "tof": (not model_stop) and kind == "task" and not found,
+                    },
                     "understanding": {
                         "kind": kind,
-                        "label": "问以前" if asking_past else ("先停下" if model_stop else (understood.get("label") or "闲聊")),
+                        "agent": "chat" if kind == "chat" else "vision",
+                        "label": (
+                            "看眼前"
+                            if kind == "watch"
+                            else (
+                                "问以前"
+                                if asking_past
+                                else ("先停下" if model_stop else (understood.get("label") or "闲聊"))
+                            )
+                        ),
                         "summary": understood.get("summary") or "",
                         "source": "model" if model_intent else "rule",
                     },
                     "task": {
                         "session_id": sid,
-                        "decision": revision.decision,
-                        "reason": revision.reason,
-                        "main_task": revision.main_task,
-                        "intent": revision.intent,
+                        "decision": "watch" if kind == "watch" else ("done" if found else revision.decision),
+                        "found": found,
+                        "reason": "没有寻找任务，继续看眼前" if kind == "watch" else revision.reason,
+                        "main_task": "" if kind == "watch" or found else revision.main_task,
+                        "intent": "general_help" if kind == "watch" else revision.intent,
                         "question": question_used,
                         "spoken_text": spoken,
                         "client": str(client or "").strip()[:32],
@@ -408,15 +449,41 @@ def create_app(
     return app
 
 
+def _lan_client(host: str) -> bool:
+    value = str(host or "").strip()
+    if value.startswith("::ffff:"):
+        value = value.split("::ffff:", 1)[1]
+    if value in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private
+
+
 def _build_asr_handler(runner: MiniCPMOAccessibilityRunner) -> ASRHandler:
     if runner.mock:
         return ASRHandler(mock=True)
-    return ASRHandler(
-        mock=False,
-        base_url=os.getenv("ASR_API_BASE_URL", ""),
-        api_key=os.getenv("ASR_API_KEY", ""),
-        model=os.getenv("ASR_MODEL", "whisper-1"),
-    )
+    explicit_base = os.getenv("ASR_API_BASE_URL", "").strip()
+    if explicit_base:
+        return ASRHandler(
+            mock=False,
+            base_url=explicit_base,
+            api_key=os.getenv("ASR_API_KEY", ""),
+            model=os.getenv("ASR_MODEL", "whisper-1"),
+        )
+    model_base = os.getenv("MODEL_API_BASE_URL", "").strip()
+    model_key = os.getenv("MODEL_API_KEY", "").strip()
+    if model_base and model_key and "xiaomimimo.com" in model_base:
+        return ASRHandler(
+            mock=False,
+            base_url=model_base,
+            api_key=model_key,
+            model="mimo-v2.5-asr",
+            provider="mimo",
+        )
+    return ASRHandler(mock=False, base_url="")
 
 
 def _build_task_store() -> TaskMemoryStore:

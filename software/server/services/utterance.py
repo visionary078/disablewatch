@@ -28,7 +28,16 @@ SPECIAL_LABELS = {
     "stop": "先停下",
     "": "闲聊",
 }
-CHAT_RE = re.compile(r"天气|你好|谢谢|再见|聊天|吃了吗|在干嘛|辛苦了")
+CHAT_RE = re.compile(
+    r"天气|气温|下雨|降温|新闻|大事|热点|头条|发生了什么|今天有什么|"
+    r"你好|谢谢|再见|聊天|吃了吗|在干嘛|辛苦了"
+)
+LIVE_INFO_RE = re.compile(r"天气|气温|下雨|降温|新闻|大事|热点|头条|发生了什么|今天有什么")
+
+
+def needs_live_info(text: str) -> bool:
+    """天气、新闻这类问题要联网，不能靠模型记忆。"""
+    return bool(LIVE_INFO_RE.search(str(text or "")))
 
 
 def understand_speech(text: str, model_text: str = "") -> dict:

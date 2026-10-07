@@ -55,6 +55,7 @@ class TaskMemory:
     question: str = ""
     utterances: List[str] = field(default_factory=list)
     updated_at: float = 0.0
+    done: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -65,6 +66,7 @@ class TaskMemory:
             "question": self.question,
             "utterances": list(self.utterances),
             "updated_at": self.updated_at,
+            "done": self.done,
         }
 
 
@@ -161,6 +163,7 @@ class TaskMemoryStore:
             question=str(data.get("question") or ""),
             utterances=list(data.get("utterances") or []),
             updated_at=float(data.get("updated_at") or 0),
+            done=bool(data.get("done")),
         )
 
 

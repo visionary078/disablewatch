@@ -144,11 +144,279 @@ h1 {
   margin: 16px 4px 4px;
 }
 
-.glasses-only {
-  min-height: 100vh;
+.phone-site {
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 28px 20px;
+}
+
+.site {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.site-brand {
+  margin: 0;
+  color: var(--accent);
+  letter-spacing: 0.28em;
+  font-size: 13px;
+}
+
+.phone {
+  width: 390px;
+  max-width: 100%;
+  height: min(800px, calc(100dvh - 88px));
+  padding: 12px;
+  border-radius: 48px;
+  background: linear-gradient(165deg, #3a3a40 0%, #121214 28%, #050506 70%, #2c2c30 100%);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.phone-screen {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 36px;
+  background: #111111;
+  color: #ffffff;
+}
+
+.status-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 10px 14px 8px;
+  background: #000000;
+}
+
+.island {
+  width: 68px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 20px;
+  background: #1c1c1e;
+}
+
+.phone-screen .status {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffe14d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phone-screen .gear {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #2b2b2b;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.camera-wrap {
+  position: relative;
+  flex: 1.15;
+  flex-shrink: 1;
+  min-height: 220px;
+  background: #000000;
+}
+
+.phone-screen .preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: cover;
+  border: 0;
+  border-radius: 0;
+  background: #000000;
+}
+
+.phone-screen .camera-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f2f2f2;
+  font-size: 18px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.preview.is-live + .camera-placeholder {
+  display: none;
+}
+
+.phone-screen .panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 6px;
+  background: #161616;
+  overflow: auto;
+}
+
+.phone-screen .speech {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.phone-screen .heard:empty,
+.phone-screen .meta-line:empty {
+  display: none;
+}
+
+.phone-screen .heard,
+.phone-screen .meta-line,
+.phone-screen .memory-now {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.45;
+  color: #d5d5d5;
+}
+
+.phone-screen .heard {
+  color: var(--accent);
+}
+
+.phone-screen .mic-line {
+  margin: 0 0 8px;
+  color: #9ecbff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.phone-screen .mic-retry {
+  align-self: flex-start;
+  min-height: 36px;
+  margin: 0 0 10px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #2b2b2b;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.phone-screen .mic-retry[hidden] {
+  display: none;
+}
+
+.phone-screen .voice-btn {
+  margin-top: auto;
+  min-height: 84px;
+  border-radius: 18px;
+  background: #2f6fed;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 800;
+  touch-action: none;
+  user-select: none;
+}
+
+.phone-screen .voice-btn.recording {
+  background: #ff4d4f;
+  color: #ffffff;
+}
+
+.phone-screen .safety {
+  display: block;
+  margin: 10px 2px 4px;
+  color: #bdbdbd;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.home-bar {
+  flex-shrink: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #161616;
+}
+
+.home-bar::before {
+  content: "";
+  width: 112px;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.phone-screen .settings {
+  position: absolute;
+  border-radius: 36px;
+}
+
+.phone-screen .gate-card {
+  width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 20px 16px;
+}
+
+.phone-screen .gate-card h2 {
+  font-size: 24px;
+}
+
+@media (max-width: 640px) {
+  .phone-site {
+    padding: 0;
+    background: #111111;
+  }
+
+  .site-brand {
+    display: none;
+  }
+
+  .site {
+    width: 100%;
+    height: 100dvh;
+    gap: 0;
+  }
+
+  .phone {
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border-radius: 0;
+    background: #111111;
+    box-shadow: none;
+  }
+
+  .phone-screen,
+  .phone-screen .settings {
+    border-radius: 0;
+  }
 }
 
 .preview-off {

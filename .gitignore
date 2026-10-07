@@ -11,6 +11,10 @@ software/server/benchmark_results.json
 software/server/task_memory.sqlite
 software/server/highlights.sqlite
 software/miniprogram/project.private.config.json
+software/android/.gradle/
+software/android/build/
+software/android/app/build/
+software/android/local.properties
 
 software/server/static/glasses/look/*.jpg
 hardware/look-desktop.png
