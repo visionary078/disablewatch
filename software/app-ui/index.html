@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#111111" />
+    <title>看见下一步</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #111111;
+        --ink: #ffffff;
+        --muted: #c8c8c8;
+        --yellow: #ffe14d;
+        --ink-on-yellow: #111111;
+        --recording: #9d1c1f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000000;
+        color: var(--ink);
+        font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+      }
+
+      body {
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .screen {
+        width: min(100vw, 390px);
+        height: min(100dvh, 844px);
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        padding: 28px 20px calc(20px + env(safe-area-inset-bottom));
+        background: var(--bg);
+      }
+
+      .app-name {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .badge {
+        flex: 0 0 auto;
+        padding: 4px 10px;
+        border: 2px solid var(--yellow);
+        border-radius: 999px;
+        color: var(--yellow);
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .screen.off .badge {
+        border-color: #ffffff;
+        color: #ffffff;
+      }
+
+      .link-status {
+        margin: 0;
+        color: var(--yellow);
+        font-size: 22px;
+        font-weight: 800;
+        line-height: 1.3;
+      }
+
+      .screen.off .link-status,
+      .screen.off .sn {
+        color: #ffffff;
+      }
+
+      .sn-label {
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .sn {
+        margin: 4px 0 0;
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .talk {
+        flex: 1;
+        min-height: 280px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        width: 100%;
+        margin: 0;
+        padding: 24px 16px;
+        border: 0;
+        border-radius: 28px;
+        background: var(--yellow);
+        color: var(--ink-on-yellow);
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        cursor: pointer;
+      }
+
+      .talk:focus-visible {
+        outline: 3px solid #ffffff;
+        outline-offset: 4px;
+      }
+
+      .talk[aria-pressed="true"] {
+        background: var(--recording);
+        color: #ffffff;
+      }
+
+      .talk-title {
+        font-size: 36px;
+        font-weight: 800;
+        line-height: 1.1;
+      }
+
+      .talk-hint {
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.3;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="screen">
+      <header>
+        <p class="app-name">看见下一步</p>
+        <div class="status-row">
+          <span class="badge" aria-hidden="true">已连接</span>
+          <p id="link-status" class="link-status" role="status" aria-live="polite">眼镜蓝牙已连接</p>
+        </div>
+        <p class="sn-label">产品编号</p>
+        <p class="sn">GL-2604-018</p>
+      </header>
+
+      <p id="prompt" class="sr-only" aria-live="polite"></p>
+
+      <button
+        id="talk"
+        class="talk"
+        type="button"
+        aria-pressed="false"
+        aria-label="按住说话。按下开始识别，松开停止识别。"
+      >
+        <span class="talk-title" id="talk-title">按住说话</span>
+        <span class="talk-hint" id="talk-hint">按住开始识别，松开停止</span>
+      </button>
+    </main>
+    <script>
+      (function () {
+        const linked = new URLSearchParams(location.search).get("link") !== "off";
+        if (!linked) {
+          document.querySelector(".screen").classList.add("off");
+          document.querySelector(".badge").textContent = "未连接";
+          document.getElementById("link-status").textContent = "眼镜蓝牙未连接";
+          document.querySelector(".sn").textContent = "暂无";
+        }
+
+        const talk = document.getElementById("talk");
+        const title = document.getElementById("talk-title");
+        const hint = document.getElementById("talk-hint");
+        const prompt = document.getElementById("prompt");
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const intro = linked
+          ? "蓝牙已连接，你现在可以和我说帮我找可乐，或者前面有没有障碍。"
+          : "蓝牙未连接。连上之后，你可以和我说帮我找可乐，或者前面有没有障碍。";
+        const useDoubao = false;
+        let holding = false;
+        let pointerId = null;
+        let recognition = null;
+        let heard = "";
+        let audioCtx = null;
+        let listenTimer = null;
+        let speakSeq = 0;
+        let introAudio = null;
+
+        speakIntro();
+
+        function ttsBase() {
+          const fromQuery = new URLSearchParams(location.search).get("api");
+          if (fromQuery) return fromQuery.replace(/\/$/, "");
+          if (location.port === "8765") return "http://127.0.0.1:8000";
+          return location.origin;
+        }
+
+        async function speakIntro() {
+          const seq = ++speakSeq;
+          if (!useDoubao) {
+            speakWithBrowser(intro);
+            return;
+          }
+          try {
+            const blob = await fetchDoubao(intro);
+            if (seq !== speakSeq) return;
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            introAudio = audio;
+            audio.onended = function () {
+              URL.revokeObjectURL(url);
+              if (introAudio === audio) introAudio = null;
+            };
+            await audio.play();
+          } catch (error) {
+            if (seq !== speakSeq) return;
+            speakWithBrowser(intro);
+          }
+        }
+
+        async function fetchDoubao(text) {
+          const base = ttsBase();
+          const headers = { "Content-Type": "application/json" };
+          try {
+            const tokenRes = await fetch(base + "/local-app-token");
+            if (tokenRes.ok) {
+              const body = await tokenRes.json();
+              if (body.token) headers["X-App-Token"] = body.token;
+            }
+          } catch (error) {}
+          const res = await fetch(base + "/tts", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({ text: text }),
+          });
+          if (!res.ok) throw new Error("tts");
+          const blob = await res.blob();
+          if (!blob.size) throw new Error("empty");
+          return blob;
+        }
+
+        function speakWithBrowser(text) {
+          const synth = window.speechSynthesis;
+          if (!synth) return;
+          synth.cancel();
+          const utter = new SpeechSynthesisUtterance(text);
+          utter.lang = "zh-CN";
+          utter.rate = 0.92;
+          synth.speak(utter);
+        }
+
+        function stopIntro() {
+          speakSeq += 1;
+          if (introAudio) {
+            introAudio.pause();
+            introAudio = null;
+          }
+          if (window.speechSynthesis) window.speechSynthesis.cancel();
+        }
+
+        function playTalkCue() {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (!Ctx) return;
+          if (!audioCtx) audioCtx = new Ctx();
+          const run = function () {
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(880, now);
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.13);
+          };
+          if (audioCtx.state === "suspended") {
+            audioCtx.resume().then(run).catch(function () {});
+            return;
+          }
+          run();
+        }
+
+        talk.addEventListener("pointerdown", onPointerDown);
+        talk.addEventListener("pointerup", onPointerUp);
+        talk.addEventListener("pointercancel", onPointerUp);
+        talk.addEventListener("contextmenu", function (event) {
+          event.preventDefault();
+        });
+        talk.addEventListener("keydown", onKeyDown);
+        window.addEventListener("keyup", onKeyUp);
+        window.addEventListener("blur", stop);
+
+        function onPointerDown(event) {
+          if (event.button !== undefined && event.button !== 0) return;
+          event.preventDefault();
+          pointerId = event.pointerId;
+          if (talk.setPointerCapture) talk.setPointerCapture(event.pointerId);
+          start();
+        }
+
+        function onPointerUp(event) {
+          if (pointerId !== null && event.pointerId !== pointerId) return;
+          pointerId = null;
+          stop();
+        }
+
+        function onKeyDown(event) {
+          if (event.key !== " " && event.key !== "Enter") return;
+          event.preventDefault();
+          if (event.repeat) return;
+          start();
+        }
+
+        function onKeyUp(event) {
+          if (event.key !== " " && event.key !== "Enter") return;
+          if (document.activeElement !== talk && !holding) return;
+          stop();
+        }
+
+        function start() {
+          if (holding) return;
+          holding = true;
+          heard = "";
+          stopIntro();
+          playTalkCue();
+          talk.setAttribute("aria-pressed", "true");
+          talk.setAttribute("aria-label", "正在识别。松开停止识别。");
+          title.textContent = "正在识别";
+          hint.textContent = "松开停止";
+          prompt.textContent = "正在识别，松开即停止。";
+          if (!Recognition) return;
+          if (listenTimer) clearTimeout(listenTimer);
+          listenTimer = setTimeout(function () {
+            listenTimer = null;
+            if (holding) beginRecognition();
+          }, 140);
+        }
+
+        function beginRecognition() {
+          const session = new Recognition();
+          recognition = session;
+          session.lang = "zh-CN";
+          session.continuous = true;
+          session.interimResults = true;
+          session.onresult = function (event) {
+            let text = "";
+            for (let i = 0; i < event.results.length; i += 1) {
+              text += event.results[i][0].transcript;
+            }
+            heard = text.trim();
+            if (holding && heard) prompt.textContent = heard;
+          };
+          session.onerror = function () {};
+          try {
+            session.start();
+          } catch (error) {
+            recognition = null;
+          }
+        }
+
+        function stop() {
+          if (!holding) return;
+          holding = false;
+          if (listenTimer) {
+            clearTimeout(listenTimer);
+            listenTimer = null;
+          }
+          talk.setAttribute("aria-pressed", "false");
+          talk.setAttribute("aria-label", "按住说话。按下开始识别，松开停止识别。");
+          title.textContent = "按住说话";
+          hint.textContent = "按住开始识别，松开停止";
+          if (recognition) {
+            try {
+              recognition.stop();
+            } catch (error) {}
+            recognition = null;
+          }
+          prompt.textContent = heard ? "识别到：" + heard : "识别已停止。";
+        }
+      })();
+    </script>
+  </body>
+</html>
