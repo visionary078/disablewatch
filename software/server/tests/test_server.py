@@ -66,7 +66,7 @@ class ServerMiniProgramTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["task"]["intent"], "find_product")
-        self.assertIn("可乐", body["task"]["main_task"])
+        self.assertEqual(body["task"]["main_task"], "")
         self.assertIn("正在帮你找可乐", body["result"]["speech"])
         self.assertEqual(body["result"]["target"], "可乐")
         self.assertTrue(body["task"]["found"])
