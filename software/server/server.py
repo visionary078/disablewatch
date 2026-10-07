@@ -19,6 +19,7 @@ from minicpmo_runner import (
     sanitize_guidance,
 )
 from services.asr import ASRHandler
+from services.doubao_tts import synthesize as synthesize_doubao
 from services.fusion import stabilize_live_result
 from services.long_memory import (
     LongMemoryService,
@@ -495,6 +496,13 @@ def _build_task_store() -> TaskMemoryStore:
 
 
 async def synthesize_speech(text: str) -> bytes:
+    if os.getenv("DOUBAO_API_KEY", "").strip():
+        try:
+            return await asyncio.to_thread(synthesize_doubao, text)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"语音合成失败：{exc}") from exc
     try:
         import edge_tts
     except ImportError as exc:

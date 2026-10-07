@@ -195,7 +195,7 @@ curl -X POST http://127.0.0.1:8000/infer \
 
 实时巡视把 `mode` 设为 `live`，可附带粗粒度 `distance_band`（一臂内 / 较近 / 较远 / 无法判断），播报仍不会出现米数。
 
-可选语音合成：
+可选语音合成。配置了 `DOUBAO_API_KEY` 时用豆包语音合成 2.0（小何），否则用 edge-tts 的晓晓：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/tts \
