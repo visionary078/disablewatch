@@ -13,6 +13,7 @@
 
 相关代码在 `software/`：
 
-- 网页：`software/server/static/glasses/`
-- 打开识别：`http://127.0.0.1:8000/glasses/` 或 `https://watchapi.divesee.com/glasses/`
+- 手机接收 WiFi 图并调用网关：`software/android/`
+- 旧的本机摄像头演示：`software/server/static/glasses/`
+- 打开旧演示：`http://127.0.0.1:8000/glasses/` 或 `https://watchapi.divesee.com/glasses/`
 - 造型展示：`http://127.0.0.1:8000/glasses/look.html`

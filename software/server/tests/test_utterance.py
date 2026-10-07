@@ -7,7 +7,7 @@ except ImportError:  # pragma: no cover
 
 from minicpmo_runner import MiniCPMOAccessibilityRunner
 from services.task_memory import TaskMemoryStore
-from services.sensing import band_from_tof_mm, sensors_for
+from services.sensing import band_from_tof_mm, object_found, sensors_for
 from services.utterance import understand_speech
 
 if TestClient is not None:
@@ -44,6 +44,9 @@ class UtteranceUnderstandingTests(unittest.TestCase):
         heard = understand_speech("今天天气怎么样")
         self.assertEqual(heard["kind"], "chat")
         self.assertEqual(heard["intent"], "")
+        news = understand_speech("今天有什么大事发生")
+        self.assertEqual(news["kind"], "chat")
+        self.assertEqual(news["intent"], "")
 
     def test_tof_reading_becomes_a_coarse_band(self):
         self.assertEqual(band_from_tof_mm(500), "一臂内")
@@ -52,6 +55,22 @@ class UtteranceUnderstandingTests(unittest.TestCase):
         self.assertEqual(band_from_tof_mm(""), "无法判断")
         self.assertEqual(sensors_for("task"), {"camera": True, "tof": True})
         self.assertEqual(sensors_for("chat"), {"camera": False, "tof": False})
+
+    def test_object_found_needs_a_place(self):
+        seen = {
+            "direction": "右前方",
+            "confidence": "medium",
+            "anchor": "柜子",
+            "speech": "正在帮你找红色的瓶子。在你右前方的柜子。",
+        }
+        missing = {
+            "direction": "未确定",
+            "confidence": "low",
+            "speech": "还在帮你找红色的瓶子。",
+        }
+        self.assertTrue(object_found(seen, "find_product"))
+        self.assertFalse(object_found(missing, "find_product"))
+        self.assertFalse(object_found(seen, "guide_way"))
 
 
 @unittest.skipIf(TestClient is None, "未安装 fastapi，跳过接口测试")
@@ -120,6 +139,8 @@ class UtteranceInferTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["understanding"]["kind"], "task")
         self.assertEqual(body["result"]["distance_band"], "一臂内")
-        self.assertTrue(body["sensors"]["tof"])
+        self.assertTrue(body["task"]["found"])
+        self.assertTrue(body["sensors"]["camera"])
+        self.assertFalse(body["sensors"]["tof"])
         self.assertNotIn("米", body["result"]["speech"])
         self.assertNotIn("500", body["result"]["speech"])

@@ -2,6 +2,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Dict, Optional
 
 from model_api import (
@@ -17,6 +18,7 @@ from prompts import (
 )
 from services.fusion import direction_from_text, is_uncertain_speech
 from services.task_memory import detect_intent, speech_goal, _product_target
+from services.utterance import needs_live_info
 
 ALLOWED_DISTANCE_BANDS = {"一臂内", "较近", "较远", "无法判断"}
 DISTANCE_BAND_HINTS = {
@@ -151,7 +153,7 @@ class MiniCPMOAccessibilityRunner:
             "根据用户这句话判断用意。只输出一行 JSON，不要解释。\n"
             '{"kind":"task|chat","intent":"找东西|指路|看价格|看障碍|问以前|先停下|其他",'
             '"target":"短目标或空","summary":"一句口语"}\n'
-            "task 只用于找东西、指路、看价格、看障碍。普通聊天、问好、问天气是 chat。\n"
+            "task 只用于找东西、指路、看价格、看障碍。问好、闲聊、天气、新闻、今天发生的事是 chat。\n"
             "指路是问往哪边走、出入口或收银台在哪一侧，不是过马路。\n"
             f"用户说：{spoken[:80]}"
         )
@@ -170,28 +172,28 @@ class MiniCPMOAccessibilityRunner:
                 self.load()
             except Exception:
                 return "我在听。你要找东西，或者问往哪边走，直接说就行。"
-        profile_name = self._chat_profile_name()
+        live = needs_live_info(spoken)
         prompt = (
-            "你在陪一位视障使用者说话。这句不是找东西，也不是问路。"
-            "用一两句口语回答。不要说正在找什么，不要说米、厘米或步数，不要建议过马路。\n"
+            "你是视障使用者身边的聊天助手。你不看画面，不找东西，不指路。\n"
+            f"今天是 {date.today().isoformat()}。\n"
+            "天气、新闻、今天发生的事，只根据联网结果回答。\n"
+            "最多两句短话，适合朗读。用户没说城市时只说一个地方，不要把两个城市连在一起。\n"
+            "不要念网址，不要说正在找，不要说米、厘米或步数，不要建议过马路。\n"
+            "查不到就说没查到，不要编。\n"
             f"用户说：{spoken[:80]}"
         )
         try:
-            reply = self.gateway.complete_text(prompt, profile_name=profile_name, timeout=8)
+            reply = self.gateway.complete_chat(prompt, web_search=live, timeout=20)
         except Exception:
+            if live:
+                return "我没查到最新的消息。你要找东西或问路，直接说就行。"
             return "我在听。你要找东西，或者问往哪边走，直接说就行。"
-        cleaned = sanitize_guidance(str(reply.text or "").strip())
-        return cleaned or "我在听。你要找东西，或者问往哪边走，直接说就行。"
-
-    def _chat_profile_name(self) -> str:
-        if self.gateway is None:
-            return ""
-        profile = self.gateway.profiles.get("chat")
-        if profile is None or not profile.api_key:
-            return ""
-        if "example" in profile.base_url:
-            return ""
-        return "chat"
+        cleaned = _speakable_chat(str(reply.text or ""))
+        if cleaned:
+            return cleaned
+        if live:
+            return "我没查到最新的消息。你要找东西或问路，直接说就行。"
+        return "我在听。你要找东西，或者问往哪边走，直接说就行。"
 
     def infer_image(
         self,
@@ -371,6 +373,15 @@ def normalize_result(value: Dict[str, Any]) -> Dict[str, Any]:
         if not action.startswith("注意"):
             action = f"{warning}{action}"
 
+    anchor = _choice(value.get("anchor"), ALLOWED_ANCHORS)
+    level = _choice(value.get("level"), ALLOWED_LEVELS)
+    slot = _choice(value.get("slot"), ALLOWED_SLOTS)
+    if anchor in {"桌子", "台面", "平面"} and level in {"手高这一层", "再高一层", "再矮一层", "最上面", "最下面"}:
+        level = "靠近你这一侧"
+    place_index = _place_index(value.get("place_index"))
+    if anchor not in {"货架", "柜子"}:
+        place_index = 0
+
     return {
         "intent": intent,
         "scene": str(value.get("scene") or "未确定场景").strip(),
@@ -385,7 +396,71 @@ def normalize_result(value: Dict[str, Any]) -> Dict[str, Any]:
         "speech": speech or "继续观察周围。",
         "task_decision": str(value.get("task_decision") or "").strip(),
         "main_task": str(value.get("main_task") or "").strip(),
+        "anchor": anchor,
+        "level": level,
+        "slot": slot,
+        "place_index": place_index,
     }
+
+
+ALLOWED_ANCHORS = {"货架", "柜子", "桌子", "台面", "平面"}
+ALLOWED_LEVELS = {"手高这一层", "再高一层", "再矮一层", "最上面", "最下面", "靠近你这一侧", "靠里"}
+ALLOWED_SLOTS = {"最左", "靠左", "中间", "靠右", "最右"}
+
+
+def _choice(value: Any, allowed: set) -> str:
+    text = str(value or "").strip()
+    return text if text in allowed else ""
+
+
+def _place_index(value: Any) -> int:
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+    if 1 <= number <= 6:
+        return number
+    return 0
+
+
+def compose_find_speech(
+    goal: str,
+    *,
+    direction: str = "",
+    anchor: str = "",
+    level: str = "",
+    slot: str = "",
+    place_index: int = 0,
+    risk_level: str = "",
+    seen: bool = True,
+) -> str:
+    """用身体和能摸到的参照说位置。空白平面不数第几个。"""
+    prefix = "注意。" if risk_level == "high" else ""
+    face = ""
+    if direction and direction != "未确定":
+        face = f"在你{direction}"
+    anchor_name = anchor if anchor in ALLOWED_ANCHORS else ""
+    if anchor_name in {"桌子", "台面", "平面"}:
+        if level in {"手高这一层", "再高一层", "再矮一层", "最上面", "最下面"}:
+            level = "靠近你这一侧"
+        place_index = 0
+    level_name = level if level in ALLOWED_LEVELS else ""
+    on_shelf = anchor_name in {"货架", "柜子"} and 1 <= int(place_index or 0) <= 6
+    if on_shelf:
+        across = f"从你左手边数第{int(place_index)}个"
+    else:
+        across = slot if slot in ALLOWED_SLOTS else ""
+    holder = f"{face}的{anchor_name}" if face and anchor_name else (face or anchor_name)
+    parts = [part for part in (holder, level_name, across) if part]
+    place = "，".join(parts)
+    name = goal or "它"
+    if not seen:
+        if place:
+            return f"{prefix}还在帮你找{name}。先找到{place}。"
+        return f"{prefix}还在帮你找{name}。"
+    if place:
+        return f"{prefix}正在帮你找{name}。{place}。"
+    return f"{prefix}正在帮你找{name}。"
 
 
 SEARCH_INTENTS = {"find_product", "find_entrance", "find_cashier"}
@@ -429,8 +504,12 @@ def _mock_vision_result(question: str, extra_prompt: str = "") -> Dict[str, Any]
             "obstacles": ["货架"],
             "risk_level": "medium",
             "confidence": "medium",
-            "action": f"正在帮你找{goal}，正前方货架中部较近，请先停下确认。",
-            "speech": f"正在帮你找{goal}，正前方货架中部较近。",
+            "anchor": "货架",
+            "level": "手高这一层",
+            "slot": "中间",
+            "place_index": 0,
+            "action": f"正在帮你找{goal}。在你正前方的货架，手高这一层，中间。",
+            "speech": f"正在帮你找{goal}。在你正前方的货架，手高这一层，中间。",
         }
     return {
         "intent": "find_entrance",
@@ -486,21 +565,22 @@ def humanize_search_speech(
             speech = f"{helping}，{body}" if body else f"{helping}。"
     if goal:
         speech = speech.replace("目标在", f"{goal}在")
-    if should_help and len(re.sub(r"\s+", "", speech)) > 40:
+    if should_help:
         direction = str(result.get("direction") or "未确定")
-        scene = str(result.get("scene") or "").strip()
-        proximity = str(result.get("proximity") or "")
-        prefix = "注意，" if str(result.get("risk_level") or "") == "high" else ""
-        if direction != "未确定":
-            loc = direction
-            if scene and not scene.startswith("未确定") and scene not in loc:
-                loc = f"{direction}{scene}"
-            extra = proximity if proximity not in {"", "无法判断"} else ""
-            speech = f"{prefix}正在帮你找{goal}，{loc}{extra}。"
-        else:
-            seen = scene if scene and not scene.startswith("未确定") else "还没看清"
-            speech = f"{prefix}正在帮你找{goal}，{seen}。"
+        seen = direction != "未确定" or bool(result.get("anchor"))
+        speech = compose_find_speech(
+            goal,
+            direction=direction,
+            anchor=str(result.get("anchor") or ""),
+            level=str(result.get("level") or ""),
+            slot=str(result.get("slot") or ""),
+            place_index=int(result.get("place_index") or 0),
+            risk_level=str(result.get("risk_level") or ""),
+            seen=seen,
+        )
     result["speech"] = speech or result.get("speech") or "继续观察周围。"
+    if should_help:
+        result["action"] = result["speech"]
     if should_help and result.get("target") in {"", "未确定目标"}:
         result["target"] = goal
     if main_task and not result.get("main_task"):
@@ -519,6 +599,15 @@ def apply_distance_band(parsed: Dict[str, Any], distance_band: str) -> Dict[str,
     if hint and not any(token in speech for token in ("较近", "较远", "已接近", "一臂")):
         result["speech"] = sanitize_guidance(f"{speech}{hint}")
     return result
+
+
+def _speakable_chat(text: str) -> str:
+    cleaned = re.sub(r"https?://\S+", "", str(text or ""))
+    cleaned = re.sub(r"正在帮你找[^。]*。?", "", cleaned)
+    cleaned = re.sub(r"\s+", "", cleaned).strip()
+    sentences = [part for part in re.split(r"(?<=[。！？])", cleaned) if part.strip()]
+    cleaned = "".join(sentences[:2]) if sentences else cleaned
+    return cleaned[:72]
 
 
 def sanitize_guidance(text: str) -> str:

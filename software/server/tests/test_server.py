@@ -66,9 +66,13 @@ class ServerMiniProgramTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["task"]["intent"], "find_product")
-        self.assertIn("可乐", body["task"]["main_task"])
+        self.assertEqual(body["task"]["main_task"], "")
         self.assertIn("正在帮你找可乐", body["result"]["speech"])
         self.assertEqual(body["result"]["target"], "可乐")
+        self.assertTrue(body["task"]["found"])
+        self.assertEqual(body["task"]["decision"], "done")
+        self.assertTrue(body["sensors"]["camera"])
+        self.assertFalse(body["sensors"]["tof"])
 
         live = self.client.post(
             "/infer",
@@ -82,8 +86,11 @@ class ServerMiniProgramTests(unittest.TestCase):
         )
         self.assertEqual(live.status_code, 200)
         live_body = live.json()
-        self.assertIn("可乐", live_body["task"]["question"])
-        self.assertIn("正在帮你找可乐", live_body["result"]["speech"])
+        self.assertFalse(live_body["task"]["found"])
+        self.assertEqual(live_body["understanding"]["kind"], "watch")
+        self.assertEqual(live_body["understanding"]["agent"], "vision")
+        self.assertTrue(live_body["sensors"]["camera"])
+        self.assertNotIn("正在帮你找可乐", live_body["result"]["speech"] or "")
 
     def test_infer_rejects_oversize_image(self):
         runner = MiniCPMOAccessibilityRunner(mock=True)
@@ -101,7 +108,7 @@ class ServerMiniProgramTests(unittest.TestCase):
         page = self.client.get("/glasses/")
         self.assertEqual(page.status_code, 200)
         self.assertIn("text/html", page.headers.get("content-type", ""))
-        self.assertIn("眼镜", page.text)
+        self.assertIn("看见下一步", page.text)
         redirect = self.client.get("/glasses", follow_redirects=False)
         self.assertIn(redirect.status_code, (301, 302, 307, 308))
 

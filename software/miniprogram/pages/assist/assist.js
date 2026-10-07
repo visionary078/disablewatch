@@ -43,6 +43,7 @@ function wrapTaskSpeech(decision, mainTask, speech) {
 Page({
   data: {
     statusText: "正在准备摄像头",
+    memoryNow: "还没有",
     statusLabel: "当前状态：正在准备摄像头",
     liveOn: false,
     liveLabel: "开始实时辅助",
@@ -95,6 +96,7 @@ Page({
 
   onShow() {
     this.refreshSettings()
+    config.saveHighlights()
     if (this._wantLive && this.data.cameraReady && !this.data.liveOn) {
       this.startLive()
     }
@@ -499,10 +501,6 @@ Page({
     }
 
     const spoken = spokenText || ""
-    const forceLook = mode === "precise" && !spoken
-    if (!spoken && !forceLook && this._sensors && this._sensors.camera === false) {
-      return
-    }
     this._inferring = true
     const isPrecise = mode === "precise"
     this.setData({
@@ -575,7 +573,7 @@ Page({
     if (payload.sensors && typeof payload.sensors.camera === "boolean") {
       this._sensors = payload.sensors
     }
-    config.saveHighlights(payload.highlights)
+    config.saveHighlights()
     const task = payload.task || {}
     const mainTask = task.main_task || (result && result.main_task) || this.data.mainTaskText || ""
     const speakNow =
@@ -586,6 +584,7 @@ Page({
     const patch = {
       result,
       resultSpeech: speech,
+      memoryNow: mainTask || "还没有",
       riskClass: result ? `risk-${result.risk_level}` : "",
       riskText: result ? a11y.riskLabel(result.risk_level) : "",
       confidenceText: result ? a11y.confidenceLabel(result.confidence) : "",

@@ -25,6 +25,14 @@ class ModelAPIError(RuntimeError):
     """Raised when a remote model API cannot return a usable response."""
 
 
+WEB_SEARCH_TOOL = {
+    "type": "web_search",
+    "max_keyword": 2,
+    "force_search": True,
+    "limit": 3,
+}
+
+
 def _env_override(mapping: Mapping[str, Any], key: str, default: Any = "") -> Any:
     env_name = str(mapping.get(f"{key}_env") or "").strip()
     if env_name and os.getenv(env_name) not in (None, ""):
@@ -168,13 +176,22 @@ class OpenAICompatibleVisionClient:
             usage=dict(response.get("usage") or {}),
         )
 
-    def complete_text(self, profile: ModelProfile, prompt: str) -> RemoteModelResponse:
+    def complete_text(
+        self,
+        profile: ModelProfile,
+        prompt: str,
+        tools: Optional[list] = None,
+    ) -> RemoteModelResponse:
         payload: Dict[str, Any] = {
             "model": profile.model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0,
+            "temperature": 0.4 if tools else 0,
             "max_completion_tokens": profile.max_tokens,
         }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+            payload["thinking"] = {"type": "disabled"}
         response = self._request_json(profile, payload)
         try:
             content = response["choices"][0]["message"]["content"]
@@ -256,6 +273,18 @@ class ModelGateway:
         selected = profile_name.strip() or self.default_profile
         profile = replace(self.profiles[selected], timeout=max(1, int(timeout)), max_tokens=40)
         return self.client.complete_text(profile, prompt)
+
+    def complete_chat(self, prompt: str, *, web_search: bool = False, timeout: int = 20) -> RemoteModelResponse:
+        """文字聊天。不传图片。天气和新闻强制走联网搜索。"""
+        profile = replace(self._text_profile(), timeout=max(8, int(timeout)), max_tokens=180)
+        tools = [dict(WEB_SEARCH_TOOL)] if web_search else None
+        return self.client.complete_text(profile, prompt, tools=tools)
+
+    def _text_profile(self) -> ModelProfile:
+        chat = self.profiles.get("chat")
+        if chat is not None and chat.api_key and "example" not in chat.base_url:
+            return chat
+        return self.profiles[self.default_profile]
 
     def complete(
         self,

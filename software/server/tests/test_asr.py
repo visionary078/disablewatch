@@ -1,9 +1,12 @@
+import json
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from minicpmo_runner import MiniCPMOAccessibilityRunner
-from server import ASR_LOCKS, create_app
+from server import ASR_LOCKS, _build_asr_handler, create_app
 from services.asr import ASRHandler, MOCK_ASR_TEXT
 
 
@@ -19,6 +22,60 @@ class ASRHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(handler.enabled)
         with self.assertRaises(RuntimeError):
             await handler.transcribe(b"fake-audio")
+
+    async def test_mimo_posts_wav_to_chat_completions(self):
+        handler = ASRHandler(
+            base_url="https://api.xiaomimimo.com/v1",
+            api_key="test-key",
+            model="mimo-v2.5-asr",
+            provider="mimo",
+        )
+        captured = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {"choices": [{"message": {"content": "找一下水杯"}}]}
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["body"] = json.loads(request.data.decode("utf-8"))
+            captured["timeout"] = timeout
+            captured["auth"] = request.get_header("Authorization")
+            return Response()
+
+        with patch("services.asr.urllib.request.urlopen", fake_urlopen):
+            result = await handler.transcribe(b"RIFFwav", "speech.wav")
+        self.assertEqual(result["text"], "找一下水杯")
+        self.assertEqual(captured["url"], "https://api.xiaomimimo.com/v1/chat/completions")
+        self.assertEqual(captured["body"]["model"], "mimo-v2.5-asr")
+        self.assertEqual(captured["body"]["asr_options"]["language"], "zh")
+        self.assertTrue(captured["body"]["messages"][0]["content"][0]["input_audio"]["data"].startswith("data:audio/wav;base64,"))
+        self.assertEqual(captured["auth"], "Bearer test-key")
+
+
+class ASRBuildTests(unittest.TestCase):
+    def test_mimo_key_enables_asr_when_dedicated_asr_is_empty(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "ASR_API_BASE_URL": "",
+                "MODEL_API_BASE_URL": "https://api.xiaomimimo.com/v1",
+                "MODEL_API_KEY": "test-key",
+            },
+            clear=False,
+        ):
+            handler = _build_asr_handler(SimpleNamespace(mock=False))
+        self.assertTrue(handler.enabled)
+        self.assertEqual(handler.provider, "mimo")
+        self.assertEqual(handler.model, "mimo-v2.5-asr")
 
 
 class ASRServerTests(unittest.TestCase):

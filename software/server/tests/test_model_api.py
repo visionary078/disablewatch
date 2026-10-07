@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from minicpmo_runner import MiniCPMOAccessibilityRunner
-from model_api import ModelProfile, OpenAICompatibleVisionClient, load_model_gateway
+from model_api import ModelGateway, ModelProfile, OpenAICompatibleVisionClient, load_model_gateway
 
 
 class _FakeHTTPResponse:
@@ -107,6 +107,66 @@ class ModelAPITests(unittest.TestCase):
         status = runner.status()
         self.assertFalse(status["local_model_required"])
         self.assertEqual(status["device"], "remote-api")
+
+    def test_chat_weather_asks_for_web_search_and_no_image(self):
+        profile = ModelProfile(
+            name="primary",
+            base_url="https://example.test/v1",
+            model="mimo-v2.5",
+            api_key="secret",
+        )
+        gateway = ModelGateway({"primary": profile}, "primary")
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return _FakeHTTPResponse(
+                {
+                    "model": "mimo-v2.5",
+                    "choices": [{"message": {"content": "北京今天多云。"}}],
+                }
+            )
+
+        runner = MiniCPMOAccessibilityRunner(mock=False)
+        runner.gateway = gateway
+        with patch("model_api.urllib.request.urlopen", side_effect=fake_urlopen):
+            speech = runner.chat_reply("今天天气怎么样")
+
+        self.assertIn("多云", speech)
+        self.assertNotIn("image_url", json.dumps(captured["payload"]))
+        tool = captured["payload"]["tools"][0]
+        self.assertEqual(tool["type"], "web_search")
+        self.assertTrue(tool["force_search"])
+        self.assertNotIn("正在帮你找", speech)
+
+    def test_plain_hello_does_not_force_web_search(self):
+        profile = ModelProfile(name="primary", base_url="https://example.test/v1", model="mimo-v2.5", api_key="secret")
+        gateway = ModelGateway({"primary": profile}, "primary")
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return _FakeHTTPResponse({"choices": [{"message": {"content": "我在。"}}]})
+
+        runner = MiniCPMOAccessibilityRunner(mock=False)
+        runner.gateway = gateway
+        with patch("model_api.urllib.request.urlopen", side_effect=fake_urlopen):
+            runner.chat_reply("你好")
+        self.assertNotIn("tools", captured["payload"])
+
+    def test_chat_profile_is_used_when_it_has_its_own_key(self):
+        primary = ModelProfile(name="primary", base_url="https://vision.test/v1", model="vision", api_key="vision-key")
+        chat = ModelProfile(name="chat", base_url="https://chat.test/v1", model="chat-model", api_key="chat-key")
+        gateway = ModelGateway({"primary": primary, "chat": chat}, "primary")
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            return _FakeHTTPResponse({"choices": [{"message": {"content": "你好。"}}]})
+
+        with patch("model_api.urllib.request.urlopen", side_effect=fake_urlopen):
+            gateway.complete_chat("你好", web_search=False)
+        self.assertEqual(captured["url"], "https://chat.test/v1/chat/completions")
 
 
 if __name__ == "__main__":

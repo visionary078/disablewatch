@@ -7,7 +7,7 @@ except ImportError:  # pragma: no cover
     TestClient = None
 
 from minicpmo_runner import MiniCPMOAccessibilityRunner
-from services.long_memory import LongMemoryService, _snippet_texts, build_highlights, scrub_speech
+from services.long_memory import HighlightBook, LongMemoryService, _snippet_texts, build_highlights, scrub_speech
 from services.task_memory import TaskMemoryStore
 
 if TestClient is not None:
@@ -52,6 +52,13 @@ class LongMemoryUnitTests(unittest.TestCase):
             ["纠正：先不要按旧说法找可乐"],
         )
         self.assertEqual(build_highlights("帮我找无糖可乐", "new", "无糖可乐"), ["常找无糖可乐"])
+        self.assertEqual(build_highlights("帮我记住出口在右侧", "keep", ""), ["记住：出口在右侧"])
+
+    def test_notes_older_than_a_day_are_dropped(self):
+        book = HighlightBook()
+        book.add("user-old", ["常找可乐"])
+        book._rows["user-old"][0]["updated_at"] -= 25 * 60 * 60
+        self.assertEqual(book.list("user-old"), [])
 
     def test_reads_cloud_search_model(self):
         class Detail:
@@ -71,7 +78,7 @@ class LongMemoryUnitTests(unittest.TestCase):
         client = SlowMemory(delay=0.4, snippets=["无糖可乐在左边"])
         service = LongMemoryService(client=client, enabled=True, timeout_s=0.05)
         started = time.perf_counter()
-        found = service.recall("user-1", "可乐", "new", "帮我找可乐")
+        found = service.recall("user-1", "上次找的", "keep", "我上次找的是什么")
         elapsed = time.perf_counter() - started
         self.assertEqual(found, [])
         self.assertLess(elapsed, 0.3)
@@ -129,8 +136,7 @@ class LongMemoryInferTests(unittest.TestCase):
         self.assertNotIn("可乐", body["result"]["speech"])
         self.assertNotIn("在左边", body["result"]["speech"])
         self.assertEqual(body["highlights"], ["纠正：先不要按旧说法找可乐"])
-        self.assertTrue(memory.writes)
-        self.assertIn("纠正：先不要按旧说法找可乐", memory.writes[-1]["messages"][0]["content"])
+        self.assertEqual(memory.writes, [])
         self.assertNotIn("fake-jpeg", str(memory.writes))
 
     def test_recall_uses_saved_highlights_and_backend_lists_them(self):
@@ -152,6 +158,8 @@ class LongMemoryInferTests(unittest.TestCase):
         )
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.json()["highlights"], ["常找无糖可乐"])
+        self.assertEqual(listed.json()["memory"]["finds"], ["常找无糖可乐"])
+        self.assertEqual(listed.json()["memory"]["kept"], [])
         second = self._infer(
             client,
             spoken_text="我上次找的是什么",
@@ -164,14 +172,27 @@ class LongMemoryInferTests(unittest.TestCase):
         self.assertNotIn("根据你的习惯", speech)
         self.assertNotIn("上次", second.json()["task"]["main_task"])
         self.assertEqual(second.json()["highlights"], [])
+        deleted = client.delete(
+            "/highlights",
+            params={"user_id": "user-r"},
+            headers={"X-App-Token": "secret"},
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json()["highlights"], [])
+        self.assertEqual(deleted.json()["memory"]["finds"], [])
 
     def test_live_frame_does_not_search_again_inside_cache(self):
         memory = SlowMemory(snippets=["常去门口"])
         service = LongMemoryService(client=memory, enabled=True, timeout_s=0.3)
         client = self._client(service)
-        self._infer(client, spoken_text="帮我找可乐", session_id="cache", user_id="user-2")
-        self.assertEqual(memory.searches, 1)
+        first = self._infer(client, spoken_text="帮我找可乐", session_id="cache", user_id="user-2")
+        self.assertEqual(memory.searches, 0)
+        self.assertEqual(memory.writes, [])
+        self.assertEqual(first.json()["memory"]["finds"], ["常找可乐"])
+        self.assertTrue(first.json()["task"]["found"])
         live = self._infer(client, session_id="cache", user_id="user-2", mode="live")
         self.assertEqual(live.status_code, 200)
-        self.assertEqual(memory.searches, 1)
-        self.assertIn("可乐", live.json()["result"]["speech"])
+        self.assertEqual(memory.searches, 0)
+        self.assertEqual(live.json()["understanding"]["kind"], "watch")
+        self.assertTrue(live.json()["sensors"]["camera"])
+        self.assertNotIn("可乐", live.json()["result"]["speech"] or "")
