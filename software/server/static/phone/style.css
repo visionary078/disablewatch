@@ -1,0 +1,115 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #070b14;
+  color: #f5f7fb;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+main {
+  height: 100vh;
+  height: 100dvh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 1.1rem 1.1rem 0.9rem;
+}
+
+.howto {
+  flex: 0 0 auto;
+  margin-top: 1.15rem;
+}
+
+.howto h1 {
+  margin: 0 0 0.45rem;
+  font-size: 1rem;
+  font-weight: 650;
+  color: #9aabc4;
+}
+
+.howto ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 1.12rem;
+  line-height: 1.55;
+  color: #d5deee;
+}
+
+.howto li + li {
+  margin-top: 0.35rem;
+}
+
+.subtitle {
+  flex: 0.85 1 9rem;
+  min-height: 9rem;
+  margin: 0 0 0.85rem;
+  font-size: 2.15rem;
+  line-height: 1.45;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+}
+
+#talk {
+  width: 100%;
+  flex: 1.15 1 14rem;
+  min-height: 14rem;
+  padding: 1.4rem 1.2rem;
+  border: 0;
+  border-radius: 1.8rem;
+  background: #2f6fed;
+  color: #fff;
+  font: inherit;
+  font-size: 3rem;
+  font-weight: 700;
+}
+
+#talk.recording {
+  background: #9d2c2c;
+}
+
+button.ghost,
+#save-settings {
+  font: inherit;
+}
+
+button.ghost {
+  margin-top: 0.8rem;
+  padding: 0.4rem;
+  border: 0;
+  background: transparent;
+  color: #8ea0c0;
+}
+
+.settings {
+  margin-top: 0.6rem;
+}
+
+.settings label {
+  display: block;
+  margin: 0.6rem 0 0.3rem;
+}
+
+.settings input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.7rem;
+  border: 1px solid #314056;
+  border-radius: 0.6rem;
+  background: #101826;
+  color: #f5f7fb;
+  font: inherit;
+}
+
+#save-settings {
+  margin-top: 0.7rem;
+  padding: 0.7rem 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: #2f6fed;
+  color: #fff;
+}
+
+.hidden {
+  display: none;
+}

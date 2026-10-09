@@ -90,6 +90,26 @@ class RunnerSafetyTests(unittest.TestCase):
         self.assertNotIn("目标在", value["speech"])
         self.assertNotIn("第", value["speech"])
 
+    def test_steer_stops_for_a_hazard_and_names_the_side(self):
+        from minicpmo_runner import humanize_search_speech
+
+        blocked = humanize_search_speech(
+            {
+                "direction": "正前方",
+                "risk_level": "high",
+                "obstacles": ["台阶"],
+                "speech": "往前走。",
+            },
+            intent="avoid_obstacle",
+        )
+        self.assertIn("先停一下", blocked["speech"])
+        self.assertIn("台阶", blocked["speech"])
+        clear = humanize_search_speech(
+            {"direction": "右前方", "risk_level": "low", "obstacles": [], "speech": "往右。"},
+            intent="guide_way",
+        )
+        self.assertEqual(clear["speech"], "稍向右。")
+
     def test_shelf_is_counted_from_the_users_left_hand(self):
         from minicpmo_runner import compose_find_speech
 

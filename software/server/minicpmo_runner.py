@@ -3,7 +3,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from model_api import (
     ModelConfigurationError,
@@ -176,7 +176,7 @@ class MiniCPMOAccessibilityRunner:
         prompt = (
             "你是视障使用者身边的聊天助手。你不看画面，不找东西，不指路。\n"
             f"今天是 {date.today().isoformat()}。\n"
-            "天气、新闻、今天发生的事，只根据联网结果回答。\n"
+            "天气和新闻只根据联网结果回答。这24小时自己的记要不在这里，去手机记要里问。\n"
             "最多两句短话，适合朗读。用户没说城市时只说一个地方，不要把两个城市连在一起。\n"
             "不要念网址，不要说正在找，不要说米、厘米或步数，不要建议过马路。\n"
             "查不到就说没查到，不要编。\n"
@@ -194,6 +194,27 @@ class MiniCPMOAccessibilityRunner:
         if live:
             return "我没查到最新的消息。你要找东西或问路，直接说就行。"
         return "我在听。你要找东西，或者问往哪边走，直接说就行。"
+
+    def reply_from_notes(self, question: str, memories: List[str]) -> str:
+        """只根据检索到的记要回答。没有记要就不编。"""
+        lines = [str(item).strip() for item in memories or [] if str(item).strip()][:8]
+        if not lines:
+            return "这24小时里还没记下这件事。"
+        if self.mock or self.gateway is None:
+            return ("根据这24小时的记要，" + "；".join(lines[:3]) + "。")[:120]
+        prompt = (
+            "你是手机记要助手。只能使用下面这些24小时内的记要。\n"
+            "记要里没有的，直接说没记下。不要编，不要查新闻，不要找东西。\n"
+            "用两句短话。\n\n"
+            + "\n".join(f"- {line[:80]}" for line in lines)
+            + f"\n\n用户问：{str(question or '').strip()[:120]}"
+        )
+        try:
+            reply = self.gateway.complete_chat(prompt, web_search=False, timeout=20)
+        except Exception:
+            return "记要暂时问不了。请再说一次。"
+        cleaned = _speakable_chat(str(reply.text or ""))
+        return cleaned or "这24小时里还没记下这件事。"
 
     def infer_image(
         self,
@@ -463,6 +484,46 @@ def compose_find_speech(
     return f"{prefix}正在帮你找{name}。"
 
 
+def compose_steer_speech(parsed: Dict[str, Any]) -> str:
+    """问路和避障只说下一步：先停、往哪边让、再向前。"""
+    data = parsed or {}
+    direction = str(data.get("direction") or "")
+    risk = str(data.get("risk_level") or "low").lower()
+    raw = data.get("obstacles") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    obstacle = ""
+    if isinstance(raw, list):
+        for item in raw:
+            name = str(item or "").strip()
+            if name and name not in {"无", "没有"}:
+                obstacle = name[:8]
+                break
+    if direction in {"左侧", "左前方"}:
+        turn = "稍向左。"
+    elif direction in {"右侧", "右前方"}:
+        turn = "稍向右。"
+    elif direction == "正前方":
+        turn = "继续向前。"
+    else:
+        turn = ""
+    if risk == "high" or (obstacle and not turn):
+        head = "先停一下。"
+        if obstacle:
+            head += f"面前有{obstacle}。"
+        return head + (turn or "用盲杖探一下再走。")
+    if obstacle:
+        head = f"注意{obstacle}。"
+        if turn == "继续向前。":
+            return head + "慢一点，继续向前。"
+        return head + (turn or "先停一下。")
+    if turn == "继续向前。":
+        return "继续向前。先用盲杖确认。"
+    if turn:
+        return turn
+    return "先停一下，我还没看清往哪边让。"
+
+
 SEARCH_INTENTS = {"find_product", "find_entrance", "find_cashier"}
 HELPING_RE = re.compile(r"正在帮你找|帮你找")
 
@@ -541,9 +602,8 @@ def humanize_search_speech(
         used_intent,
     )
     speech = str(result.get("speech") or "").strip()
-    if used_intent == "guide_way":
-        if not re.search(r"往|走", speech):
-            speech = f"正在帮你看往哪边走。{speech}".strip()
+    if used_intent in {"guide_way", "avoid_obstacle"}:
+        speech = sanitize_guidance(compose_steer_speech(result))
         result["speech"] = speech
         result["action"] = speech
         result["intent"] = used_intent

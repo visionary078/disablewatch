@@ -33,10 +33,25 @@ CHAT_RE = re.compile(
     r"你好|谢谢|再见|聊天|吃了吗|在干嘛|辛苦了"
 )
 LIVE_INFO_RE = re.compile(r"天气|气温|下雨|降温|新闻|大事|热点|头条|发生了什么|今天有什么")
+DAY_SUMMARY_RE = re.compile(
+    r"今天发生了什么|刚才发生了什么|有没有发生什么|发生什么事|"
+    r"帮我总结|总结一下|今天怎么样|今天有什么事|刚才有什么事|这一天"
+)
+NEWS_RE = re.compile(r"新闻|大事|热点|头条")
+
+
+def is_day_summary(text: str) -> bool:
+    """问的是自己这 24 小时，不是新闻。"""
+    spoken = str(text or "")
+    if NEWS_RE.search(spoken):
+        return False
+    return bool(DAY_SUMMARY_RE.search(spoken))
 
 
 def needs_live_info(text: str) -> bool:
     """天气、新闻这类问题要联网，不能靠模型记忆。"""
+    if is_day_summary(text):
+        return False
     return bool(LIVE_INFO_RE.search(str(text or "")))
 
 
@@ -44,6 +59,8 @@ def understand_speech(text: str, model_text: str = "") -> dict:
     spoken = str(text or "").replace("\n", " ").strip()
     if not spoken:
         return _pack("", "rule", "", "")
+    if is_day_summary(spoken):
+        return _pack("", "rule", "", "问今天发生了什么")
     mapped, target, summary, model_kind = _parse_model(model_text)
     if model_kind == "chat":
         return _pack(mapped if mapped in {"ask_past", "stop"} else "", "model", target, summary)

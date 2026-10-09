@@ -15,7 +15,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="打开手机热点。摄像头和眼镜都连这台手机。播报页是 http://192.168.43.1:8788/" />
+        android:text="打开手机热点。摄像头和眼镜都连这台手机。眼镜播报页是 http://192.168.43.1:8788/ 。24小时记要在手机浏览器打开网关地址后面的 /phone/ ，不在眼镜上。" />
 
     <EditText
         android:id="@+id/gateway"
