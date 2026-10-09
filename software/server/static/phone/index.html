@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>看见下一步 · 手机</title>
+    <link rel="stylesheet" href="./style.css?v=8" />
+  </head>
+  <body>
+    <main>
+      <p id="subtitle" class="subtitle" role="status" aria-live="assertive">点一下说话。</p>
+      <button id="talk" type="button">说话</button>
+      <section class="howto" aria-labelledby="howto-title">
+        <h1 id="howto-title">使用说明</h1>
+        <ol>
+          <li>点一下「说话」。说完，再点一下。</li>
+          <li>要问记过的事，直接说。例如：药放在哪。</li>
+          <li>其他的话会记下，只留一天。屏幕只留字幕，记要不在眼镜上。</li>
+        </ol>
+      </section>
+      <button id="open-settings" class="ghost" type="button">连接</button>
+      <section id="settings" class="settings hidden">
+        <label for="api">服务器地址</label>
+        <input id="api" type="url" />
+        <label for="token">使用口令</label>
+        <input id="token" type="password" />
+        <button id="save-settings" type="button">保存</button>
+      </section>
+    </main>
+    <script src="./app.js?v=3"></script>
+  </body>
+</html>

@@ -37,6 +37,7 @@ from services.task_memory import (
     format_task_context,
     revise_main_task,
 )
+from services.journal import looks_like_journal_question, texts_for_question
 from services.utterance import TASK_INTENTS, understand_speech
 
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
@@ -47,6 +48,7 @@ ASR_LOCKS: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 LIVE_LAST: Dict[str, Dict[str, str]] = {}
 TASK_STORE: Optional[TaskMemoryStore] = None
 GLASSES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "glasses")
+PHONE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "phone")
 
 
 def _header_token(x_app_token: str, authorization: str) -> str:
@@ -438,6 +440,66 @@ def create_app(
         long_term.forget(uid)
         return {"highlights": [], "memory": long_term.grouped(uid)}
 
+    @app.post("/journal/remember")
+    async def journal_remember(
+        request: Request,
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        """24 小时正文留在手机上。这里不落库，也不转发给记忆张量。"""
+        verify_token(x_app_token, authorization)
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="需要 JSON")
+        text = str(body.get("text") or "").strip()[:200]
+        if not text:
+            raise HTTPException(status_code=400, detail="没有要记的话")
+        return {"stored_on": "phone"}
+
+    @app.post("/journal/ask")
+    async def journal_ask(
+        request: Request,
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        """从手机传来的 24 小时记要里检索，再让模型只根据这些记要回答。"""
+        verify_token(x_app_token, authorization)
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="需要 JSON")
+        question = str(body.get("question") or "").strip()[:200]
+        notes = body.get("notes") if isinstance(body.get("notes"), list) else []
+        memories = texts_for_question(question, notes)
+        speech = runner.reply_from_notes(question, memories)
+        return {"speech": speech, "memories": memories, "stored_on": "phone"}
+
+    @app.post("/journal/act")
+    async def journal_act(
+        request: Request,
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        """语音转成文字之后：问句从记要里调，其他原话记下来。"""
+        verify_token(x_app_token, authorization)
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="需要 JSON")
+        text = str(body.get("text") or "").strip()[:200]
+        if not text:
+            raise HTTPException(status_code=400, detail="没有听到话")
+        if looks_like_journal_question(text):
+            notes = body.get("notes") if isinstance(body.get("notes"), list) else []
+            memories = texts_for_question(text, notes)
+            speech = runner.reply_from_notes(text, memories)
+            return {
+                "action": "ask",
+                "heard": text,
+                "speech": speech,
+                "memories": memories,
+                "stored_on": "phone",
+            }
+        return {"action": "save", "heard": text, "speech": "已经记下。", "stored_on": "phone"}
+
     if os.path.isdir(GLASSES_DIR):
 
         @app.get("/glasses", include_in_schema=False)
@@ -445,6 +507,14 @@ def create_app(
             return RedirectResponse(url="/glasses/", status_code=307)
 
         app.mount("/glasses", StaticFiles(directory=GLASSES_DIR, html=True), name="glasses")
+
+    if os.path.isdir(PHONE_DIR):
+
+        @app.get("/phone", include_in_schema=False)
+        def phone_entry():
+            return RedirectResponse(url="/phone/", status_code=307)
+
+        app.mount("/phone", StaticFiles(directory=PHONE_DIR, html=True), name="phone")
 
     return app
 
