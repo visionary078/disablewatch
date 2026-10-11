@@ -100,7 +100,7 @@
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(spoken);
     utterance.lang = "zh-CN";
-    utterance.rate = 0.95;
+    utterance.rate = 0.92;
     window.speechSynthesis.speak(utterance);
   }
 

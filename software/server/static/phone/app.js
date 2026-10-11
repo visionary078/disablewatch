@@ -11,6 +11,7 @@
   const apiEl = document.getElementById("api");
   const tokenEl = document.getElementById("token");
   const voice = { recording: false, recorder: null, chunks: [], stream: null, audio: null, browser: null, browserText: "" };
+  const ttsCache = new Map();
 
   function userId() {
     let id = localStorage.getItem(USER_KEY);
@@ -73,26 +74,52 @@
     if (window.speechSynthesis) window.speechSynthesis.cancel();
   }
 
+  function rememberSpeech(key, url) {
+    if (ttsCache.has(key)) URL.revokeObjectURL(ttsCache.get(key));
+    ttsCache.delete(key);
+    ttsCache.set(key, url);
+    while (ttsCache.size > 24) {
+      const oldest = ttsCache.keys().next().value;
+      URL.revokeObjectURL(ttsCache.get(oldest));
+      ttsCache.delete(oldest);
+    }
+  }
+
+  async function playSpeech(url) {
+    voice.audio = new Audio(url);
+    await voice.audio.play();
+  }
+
   async function speak(text) {
-    const spoken = String(text || "").trim();
+    const spoken = String(text || "").trim().slice(0, 200);
     if (!spoken) return;
     stopSpeak();
+    const cached = ttsCache.get(spoken);
+    if (cached) {
+      ttsCache.delete(spoken);
+      ttsCache.set(spoken, cached);
+      try {
+        await playSpeech(cached);
+        return;
+      } catch (error) {
+        /* 缓存播不出来时再向服务要一次 */
+      }
+    }
     try {
       const response = await fetch(`${apiBase()}/tts`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ text: spoken.slice(0, 200) }),
+        body: JSON.stringify({ text: spoken }),
       });
       if (!response.ok) throw new Error("tts");
       const url = URL.createObjectURL(await response.blob());
-      voice.audio = new Audio(url);
-      voice.audio.onended = () => URL.revokeObjectURL(url);
-      await voice.audio.play();
+      rememberSpeech(spoken, url);
+      await playSpeech(url);
     } catch (error) {
       if (!window.speechSynthesis) return;
       const utterance = new SpeechSynthesisUtterance(spoken);
       utterance.lang = "zh-CN";
-      utterance.rate = 0.95;
+      utterance.rate = 0.92;
       window.speechSynthesis.speak(utterance);
     }
   }

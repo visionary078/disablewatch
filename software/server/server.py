@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import io
 import ipaddress
 import os
 import tempfile
@@ -19,6 +18,7 @@ from minicpmo_runner import (
     sanitize_guidance,
 )
 from services.asr import ASRHandler
+from services.tts import SpeechFailed, SpeechUnavailable, synthesize_speech
 from services.fusion import stabilize_live_result
 from services.long_memory import (
     LongMemoryService,
@@ -387,7 +387,15 @@ def create_app(
         text = str((payload or {}).get("text") or "").strip()[:200]
         if not text:
             raise HTTPException(status_code=400, detail="缺少播报文本")
-        audio = await synthesize_speech(text)
+        try:
+            audio = await synthesize_speech(text)
+        except SpeechUnavailable as exc:
+            raise HTTPException(
+                status_code=501,
+                detail="未安装 edge-tts。可执行 pip install edge-tts，或改用微信同声传译插件。",
+            ) from exc
+        except SpeechFailed as exc:
+            raise HTTPException(status_code=503, detail="语音合成失败") from exc
         return Response(content=audio, media_type="audio/mpeg")
 
     @app.post("/asr")
@@ -562,30 +570,6 @@ def _build_task_store() -> TaskMemoryStore:
         db_path = os.getenv("TASK_DB_PATH", "task_memory.sqlite").strip()
         TASK_STORE = TaskMemoryStore(db_path=db_path)
     return TASK_STORE
-
-
-async def synthesize_speech(text: str) -> bytes:
-    try:
-        import edge_tts
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=501,
-            detail="未安装 edge-tts。可执行 pip install edge-tts，或改用微信同声传译插件。",
-        ) from exc
-    try:
-        communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
-        buffer = io.BytesIO()
-        async for chunk in communicate.stream():
-            if chunk.get("type") == "audio":
-                buffer.write(chunk["data"])
-        audio = buffer.getvalue()
-        if not audio:
-            raise RuntimeError("empty audio")
-        return audio
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"语音合成失败：{exc}") from exc
 
 
 def parse_args():
