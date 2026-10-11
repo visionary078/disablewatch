@@ -25,6 +25,8 @@ class HubServer(
     private val lock = Any()
     private var server: ServerSocket? = null
     private var latest: ByteArray? = null
+    private var tofMm = 0
+    private var tofAt = 0L
     private var pendingSpoken = ""
     private var busy = false
     private var cameraOn = false
@@ -78,7 +80,7 @@ class HubServer(
             val headers = parseHeaders(lines.drop(1))
             val length = headers["content-length"]?.toIntOrNull() ?: 0
             val body = if (length > 0) readExact(input, length) else ByteArray(0)
-            val response = route(method, path, body)
+            val response = route(method, path, body, headers["content-type"].orEmpty())
             BufferedOutputStream(client.getOutputStream()).use { out ->
                 out.write(response)
                 out.flush()
@@ -86,10 +88,12 @@ class HubServer(
         }
     }
 
-    private fun route(method: String, path: String, body: ByteArray): ByteArray {
+    private fun route(method: String, path: String, body: ByteArray, contentType: String): ByteArray {
         return when {
-            method == "POST" && path == "/frame" -> frame(body)
+            method == "POST" && path == "/frame" -> frame(body, contentType)
+            method == "POST" && path == "/tof" -> tof(body)
             method == "POST" && path == "/say" -> say(body)
+            method == "GET" && path == "/status" -> json(200, statusJson())
             method == "GET" && path == "/speech" -> json(200, speechJson())
             method == "GET" && path == "/" -> asset("speaker/index.html", "text/html; charset=utf-8")
             method == "GET" && path == "/speaker.js" -> asset("speaker/speaker.js", "text/javascript; charset=utf-8")
@@ -98,18 +102,19 @@ class HubServer(
         }
     }
 
-    private fun frame(body: ByteArray): ByteArray {
-        if (!looksLikeJpeg(body)) return text(400, "需要 JPEG")
+    private fun frame(body: ByteArray, contentType: String): ByteArray {
+        val jpeg = extractJpeg(body, contentType) ?: return text(400, "需要 JPEG")
+        if (jpeg.size > MAX_JPEG_BYTES) return text(400, "图片太大")
         val action = synchronized(lock) {
             val spoken = pendingSpoken
             val decision = FrameRules.frameAction(busy, spoken.isNotEmpty(), cameraOn)
             if (decision == FrameRules.DROP) return@synchronized FrameRules.DROP
-            latest = body
+            latest = jpeg
             if (decision == FrameRules.STORE) return@synchronized FrameRules.STORE
             pendingSpoken = ""
             busy = true
             val useMode = if (spoken.isNotEmpty()) "precise" else "live"
-            thread(name = "hub-infer") { infer(body, spoken, useMode) }
+            thread(name = "hub-infer") { infer(jpeg, spoken, useMode) }
             FrameRules.FORWARD
         }
         return when (action) {
@@ -141,6 +146,38 @@ class HubServer(
             "wait" -> json(202, """{"status":"queued"}""")
             else -> json(202, """{"status":"forward"}""")
         }
+    }
+
+    private fun tof(body: ByteArray): ByteArray {
+        val mm = parseMm(body) ?: return json(400, """{"error":"需要 1 到 8000 的毫米数"}""")
+        synchronized(lock) {
+            tofMm = mm
+            tofAt = System.currentTimeMillis()
+        }
+        return json(200, """{"status":"ok","mm":$mm}""")
+    }
+
+    private fun parseMm(body: ByteArray): Int? {
+        val text = String(body, StandardCharsets.UTF_8).trim()
+        if (text.isEmpty()) return null
+        val raw = if (text.startsWith("{")) {
+            try {
+                JSONObject(text).opt("mm")?.toString() ?: return null
+            } catch (_: Exception) {
+                return null
+            }
+        } else {
+            text
+        }
+        val value = raw.toIntOrNull() ?: raw.toDoubleOrNull()?.toInt() ?: return null
+        if (value <= 0 || value > 8000) return null
+        return value
+    }
+
+    private fun currentTofField(): String {
+        val now = System.currentTimeMillis()
+        val reading = synchronized(lock) { tofMm to (now - tofAt) }
+        return FrameRules.freshTofMm(reading.first, reading.second)
     }
 
     private fun infer(jpeg: ByteArray, spoken: String, useMode: String) {
@@ -217,6 +254,8 @@ class HubServer(
             field("user_id", "phone")
             field("spoken_text", spoken)
             field("client", "phone")
+            val tof = currentTofField()
+            if (tof.isNotEmpty()) field("tof_mm", tof)
             out.write("--$boundary--\r\n".toByteArray())
         }
         val code = conn.responseCode
@@ -247,8 +286,47 @@ class HubServer(
         return bytesResponse(200, contentType, bytes)
     }
 
+    private fun statusJson(): String {
+        synchronized(lock) {
+            val age = if (tofAt == 0L) -1L else System.currentTimeMillis() - tofAt
+            val fresh = FrameRules.freshTofMm(tofMm, age)
+            return JSONObject()
+                .put("has_frame", latest != null)
+                .put("frame_bytes", latest?.size ?: 0)
+                .put("tof_mm", if (tofMm <= 0) JSONObject.NULL else tofMm)
+                .put("tof_fresh", fresh.isNotEmpty())
+                .put("tof_age_ms", age)
+                .put("busy", busy)
+                .put("camera_on", cameraOn)
+                .put("speech", speech)
+                .toString()
+        }
+    }
+
     private fun looksLikeJpeg(body: ByteArray): Boolean {
         return body.size > 3 && body[0] == 0xFF.toByte() && body[1] == 0xD8.toByte()
+    }
+
+    private fun extractJpeg(body: ByteArray, contentType: String): ByteArray? {
+        if (looksLikeJpeg(body)) return body
+        if (!contentType.lowercase().contains("multipart")) return null
+        var start = -1
+        for (index in 0 until body.size - 1) {
+            if (body[index] == 0xFF.toByte() && body[index + 1] == 0xD8.toByte()) {
+                start = index
+                break
+            }
+        }
+        if (start < 0) return null
+        var end = -1
+        for (index in body.size - 2 downTo start) {
+            if (body[index] == 0xFF.toByte() && body[index + 1] == 0xD9.toByte()) {
+                end = index + 2
+                break
+            }
+        }
+        if (end <= start) return null
+        return body.copyOfRange(start, end)
     }
 
     private fun parseHeaders(lines: List<String>): Map<String, String> {
@@ -309,5 +387,6 @@ class HubServer(
 
     companion object {
         const val PORT = 8788
+        const val MAX_JPEG_BYTES = 2_000_000
     }
 }
