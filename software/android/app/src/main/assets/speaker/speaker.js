@@ -19,6 +19,7 @@
 
   function beginTalk(event) {
     event.preventDefault();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (state.holding) return;
     state.holding = true;
     talkBtn.classList.add("holding");

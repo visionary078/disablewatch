@@ -18,6 +18,7 @@ from minicpmo_runner import (
     sanitize_guidance,
 )
 from services.asr import ASRHandler
+from services.chat_turns import ChatTurnStore
 from services.tts import SpeechFailed, SpeechUnavailable, synthesize_speech
 from services.fusion import stabilize_live_result
 from services.long_memory import (
@@ -86,6 +87,7 @@ def create_app(
     asr_service = asr_handler or _build_asr_handler(runner)
     memory_store = task_store or _build_task_store()
     long_term = long_memory if long_memory is not None else build_long_memory()
+    chat_turns = ChatTurnStore()
 
     def verify_token(x_app_token: str = "", authorization: str = "") -> str:
         incoming = _header_token(x_app_token, authorization)
@@ -211,7 +213,9 @@ def create_app(
                     if model_stop or is_negation(spoken):
                         chat_speech = "先停一下，这个先不找。"
                     elif spoken and not asking_past:
-                        chat_speech = sanitize_guidance(runner.chat_reply(spoken))
+                        chat_speech = sanitize_guidance(runner.chat_reply(spoken, chat_turns.recent(sid)))
+                        if chat_speech:
+                            chat_turns.append(sid, spoken, chat_speech)
                     else:
                         chat_speech = ""
                     parsed_chat = {

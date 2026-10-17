@@ -10,7 +10,7 @@
   const settingsEl = document.getElementById("settings");
   const apiEl = document.getElementById("api");
   const tokenEl = document.getElementById("token");
-  const voice = { recording: false, recorder: null, chunks: [], stream: null, audio: null, browser: null, browserText: "" };
+  const voice = { recording: false, recorder: null, chunks: [], stream: null, audio: null, browser: null, browserText: "", speakToken: 0 };
   const ttsCache = new Map();
 
   function userId() {
@@ -67,6 +67,7 @@
   }
 
   function stopSpeak() {
+    voice.speakToken += 1;
     if (voice.audio) {
       voice.audio.pause();
       voice.audio = null;
@@ -94,11 +95,13 @@
     const spoken = String(text || "").trim().slice(0, 200);
     if (!spoken) return;
     stopSpeak();
+    const token = voice.speakToken;
     const cached = ttsCache.get(spoken);
     if (cached) {
       ttsCache.delete(spoken);
       ttsCache.set(spoken, cached);
       try {
+        if (token !== voice.speakToken) return;
         await playSpeech(cached);
         return;
       } catch (error) {
@@ -111,12 +114,14 @@
         headers: jsonHeaders(),
         body: JSON.stringify({ text: spoken }),
       });
+      if (token !== voice.speakToken) return;
       if (!response.ok) throw new Error("tts");
       const url = URL.createObjectURL(await response.blob());
+      if (token !== voice.speakToken) return;
       rememberSpeech(spoken, url);
       await playSpeech(url);
     } catch (error) {
-      if (!window.speechSynthesis) return;
+      if (token !== voice.speakToken || !window.speechSynthesis) return;
       const utterance = new SpeechSynthesisUtterance(spoken);
       utterance.lang = "zh-CN";
       utterance.rate = 0.92;

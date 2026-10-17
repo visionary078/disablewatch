@@ -163,7 +163,7 @@ class MiniCPMOAccessibilityRunner:
             return ""
         return str(reply.text or "").strip()
 
-    def chat_reply(self, text: str) -> str:
+    def chat_reply(self, text: str, history=None) -> str:
         spoken = str(text or "").strip()
         if not spoken or self.mock:
             return "我在听。你要找东西，或者问往哪边走，直接说就行。"
@@ -173,14 +173,27 @@ class MiniCPMOAccessibilityRunner:
             except Exception:
                 return "我在听。你要找东西，或者问往哪边走，直接说就行。"
         live = needs_live_info(spoken)
+        prior = []
+        for item in history or []:
+            if not isinstance(item, dict):
+                continue
+            line = str(item.get("text") or "").strip()[:72]
+            if not line:
+                continue
+            role = "助手" if item.get("role") == "assistant" else "用户"
+            prior.append(f"{role}：{line}")
+        prior_block = ""
+        if prior:
+            prior_block = "刚才的对话，只用来接上一句，不要复述：\n" + "\n".join(prior[-10:]) + "\n"
         prompt = (
             "你是视障使用者身边的聊天助手。你不看画面，不找东西，不指路。\n"
             f"今天是 {date.today().isoformat()}。\n"
             "天气和新闻只根据联网结果回答。这24小时自己的记要不在这里，去手机记要里问。\n"
             "最多两句短话，适合朗读。用户没说城市时只说一个地方，不要把两个城市连在一起。\n"
+            "用户如果在接上一句，就顺着答，不要把刚才的话再说一遍。\n"
             "不要念网址，不要说正在找，不要说米、厘米或步数，不要建议过马路。\n"
             "查不到就说没查到，不要编。\n"
-            f"用户说：{spoken[:80]}"
+            f"{prior_block}用户说：{spoken[:80]}"
         )
         try:
             reply = self.gateway.complete_chat(prompt, web_search=live, timeout=20)
