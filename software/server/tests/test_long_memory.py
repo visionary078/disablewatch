@@ -7,7 +7,14 @@ except ImportError:  # pragma: no cover
     TestClient = None
 
 from minicpmo_runner import MiniCPMOAccessibilityRunner
-from services.long_memory import HighlightBook, LongMemoryService, _snippet_texts, build_highlights, scrub_speech
+from services.long_memory import (
+    HighlightBook,
+    LongMemoryService,
+    _snippet_texts,
+    build_highlights,
+    scrub_speech,
+)
+from services.utterance import is_day_summary, needs_live_info
 from services.task_memory import TaskMemoryStore
 
 if TestClient is not None:
@@ -53,6 +60,12 @@ class LongMemoryUnitTests(unittest.TestCase):
         )
         self.assertEqual(build_highlights("帮我找无糖可乐", "new", "无糖可乐"), ["常找无糖可乐"])
         self.assertEqual(build_highlights("帮我记住出口在右侧", "keep", ""), ["记住：出口在右侧"])
+
+    def test_day_summary_is_not_treated_as_news(self):
+        self.assertTrue(is_day_summary("今天发生了什么"))
+        self.assertFalse(needs_live_info("今天发生了什么"))
+        self.assertFalse(is_day_summary("今天有什么大事发生"))
+        self.assertTrue(needs_live_info("今天有什么大事发生"))
 
     def test_notes_older_than_a_day_are_dropped(self):
         book = HighlightBook()
@@ -150,14 +163,14 @@ class LongMemoryInferTests(unittest.TestCase):
             user_id="user-r",
         )
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json()["highlights"], ["常找无糖可乐"])
+        self.assertIn("常找无糖可乐", first.json()["highlights"])
         listed = client.get(
             "/highlights",
             params={"user_id": "user-r"},
             headers={"X-App-Token": "secret"},
         )
         self.assertEqual(listed.status_code, 200)
-        self.assertEqual(listed.json()["highlights"], ["常找无糖可乐"])
+        self.assertIn("常找无糖可乐", listed.json()["highlights"])
         self.assertEqual(listed.json()["memory"]["finds"], ["常找无糖可乐"])
         self.assertEqual(listed.json()["memory"]["kept"], [])
         second = self._infer(

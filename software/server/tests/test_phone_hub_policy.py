@@ -28,6 +28,13 @@ class PhoneHubPolicyTest(unittest.TestCase):
         policy = _policy()
         self.assertEqual(policy.frame_action(False, False, True), policy.FORWARD)
 
+    def test_fresh_tof_reading_is_forwarded_as_millimetres(self):
+        policy = _policy()
+        self.assertEqual(policy.fresh_tof_mm(842, 0.4), "842")
+        self.assertEqual(policy.fresh_tof_mm(842, 3.1), "")
+        self.assertEqual(policy.fresh_tof_mm(0, 0.1), "")
+        self.assertEqual(policy.fresh_tof_mm(9000, 0.1), "")
+
 
 if __name__ == "__main__":
     unittest.main()

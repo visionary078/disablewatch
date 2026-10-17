@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import io
 import ipaddress
 import os
 import tempfile
@@ -19,6 +18,8 @@ from minicpmo_runner import (
     sanitize_guidance,
 )
 from services.asr import ASRHandler
+from services.chat_turns import ChatTurnStore
+from services.tts import SpeechFailed, SpeechUnavailable, synthesize_speech
 from services.fusion import stabilize_live_result
 from services.long_memory import (
     LongMemoryService,
@@ -37,6 +38,7 @@ from services.task_memory import (
     format_task_context,
     revise_main_task,
 )
+from services.journal import looks_like_journal_question, texts_for_question
 from services.utterance import TASK_INTENTS, understand_speech
 
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
@@ -47,6 +49,7 @@ ASR_LOCKS: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 LIVE_LAST: Dict[str, Dict[str, str]] = {}
 TASK_STORE: Optional[TaskMemoryStore] = None
 GLASSES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "glasses")
+PHONE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "phone")
 
 
 def _header_token(x_app_token: str, authorization: str) -> str:
@@ -84,6 +87,7 @@ def create_app(
     asr_service = asr_handler or _build_asr_handler(runner)
     memory_store = task_store or _build_task_store()
     long_term = long_memory if long_memory is not None else build_long_memory()
+    chat_turns = ChatTurnStore()
 
     def verify_token(x_app_token: str = "", authorization: str = "") -> str:
         incoming = _header_token(x_app_token, authorization)
@@ -209,7 +213,9 @@ def create_app(
                     if model_stop or is_negation(spoken):
                         chat_speech = "先停一下，这个先不找。"
                     elif spoken and not asking_past:
-                        chat_speech = sanitize_guidance(runner.chat_reply(spoken))
+                        chat_speech = sanitize_guidance(runner.chat_reply(spoken, chat_turns.recent(sid)))
+                        if chat_speech:
+                            chat_turns.append(sid, spoken, chat_speech)
                     else:
                         chat_speech = ""
                     parsed_chat = {
@@ -385,7 +391,15 @@ def create_app(
         text = str((payload or {}).get("text") or "").strip()[:200]
         if not text:
             raise HTTPException(status_code=400, detail="缺少播报文本")
-        audio = await synthesize_speech(text)
+        try:
+            audio = await synthesize_speech(text)
+        except SpeechUnavailable as exc:
+            raise HTTPException(
+                status_code=501,
+                detail="未安装 edge-tts。可执行 pip install edge-tts，或改用微信同声传译插件。",
+            ) from exc
+        except SpeechFailed as exc:
+            raise HTTPException(status_code=503, detail="语音合成失败") from exc
         return Response(content=audio, media_type="audio/mpeg")
 
     @app.post("/asr")
@@ -438,6 +452,66 @@ def create_app(
         long_term.forget(uid)
         return {"highlights": [], "memory": long_term.grouped(uid)}
 
+    @app.post("/journal/remember")
+    async def journal_remember(
+        request: Request,
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        """24 小时正文留在手机上。这里不落库，也不转发给记忆张量。"""
+        verify_token(x_app_token, authorization)
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="需要 JSON")
+        text = str(body.get("text") or "").strip()[:200]
+        if not text:
+            raise HTTPException(status_code=400, detail="没有要记的话")
+        return {"stored_on": "phone"}
+
+    @app.post("/journal/ask")
+    async def journal_ask(
+        request: Request,
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        """从手机传来的 24 小时记要里检索，再让模型只根据这些记要回答。"""
+        verify_token(x_app_token, authorization)
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="需要 JSON")
+        question = str(body.get("question") or "").strip()[:200]
+        notes = body.get("notes") if isinstance(body.get("notes"), list) else []
+        memories = texts_for_question(question, notes)
+        speech = runner.reply_from_notes(question, memories)
+        return {"speech": speech, "memories": memories, "stored_on": "phone"}
+
+    @app.post("/journal/act")
+    async def journal_act(
+        request: Request,
+        x_app_token: str = Header(default="", alias="X-App-Token"),
+        authorization: str = Header(default=""),
+    ):
+        """语音转成文字之后：问句从记要里调，其他原话记下来。"""
+        verify_token(x_app_token, authorization)
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="需要 JSON")
+        text = str(body.get("text") or "").strip()[:200]
+        if not text:
+            raise HTTPException(status_code=400, detail="没有听到话")
+        if looks_like_journal_question(text):
+            notes = body.get("notes") if isinstance(body.get("notes"), list) else []
+            memories = texts_for_question(text, notes)
+            speech = runner.reply_from_notes(text, memories)
+            return {
+                "action": "ask",
+                "heard": text,
+                "speech": speech,
+                "memories": memories,
+                "stored_on": "phone",
+            }
+        return {"action": "save", "heard": text, "speech": "已经记下。", "stored_on": "phone"}
+
     if os.path.isdir(GLASSES_DIR):
 
         @app.get("/glasses", include_in_schema=False)
@@ -445,6 +519,14 @@ def create_app(
             return RedirectResponse(url="/glasses/", status_code=307)
 
         app.mount("/glasses", StaticFiles(directory=GLASSES_DIR, html=True), name="glasses")
+
+    if os.path.isdir(PHONE_DIR):
+
+        @app.get("/phone", include_in_schema=False)
+        def phone_entry():
+            return RedirectResponse(url="/phone/", status_code=307)
+
+        app.mount("/phone", StaticFiles(directory=PHONE_DIR, html=True), name="phone")
 
     return app
 
@@ -492,30 +574,6 @@ def _build_task_store() -> TaskMemoryStore:
         db_path = os.getenv("TASK_DB_PATH", "task_memory.sqlite").strip()
         TASK_STORE = TaskMemoryStore(db_path=db_path)
     return TASK_STORE
-
-
-async def synthesize_speech(text: str) -> bytes:
-    try:
-        import edge_tts
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=501,
-            detail="未安装 edge-tts。可执行 pip install edge-tts，或改用微信同声传译插件。",
-        ) from exc
-    try:
-        communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
-        buffer = io.BytesIO()
-        async for chunk in communicate.stream():
-            if chunk.get("type") == "audio":
-                buffer.write(chunk["data"])
-        audio = buffer.getvalue()
-        if not audio:
-            raise RuntimeError("empty audio")
-        return audio
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"语音合成失败：{exc}") from exc
 
 
 def parse_args():

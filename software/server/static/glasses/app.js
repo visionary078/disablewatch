@@ -260,33 +260,64 @@
     else if (level === "medium") navigator.vibrate(80);
   }
 
+  const ttsCache = new Map();
+
+  function rememberSpeech(key, url) {
+    if (ttsCache.has(key)) URL.revokeObjectURL(ttsCache.get(key));
+    ttsCache.delete(key);
+    ttsCache.set(key, url);
+    while (ttsCache.size > 24) {
+      const oldest = ttsCache.keys().next().value;
+      URL.revokeObjectURL(ttsCache.get(oldest));
+      ttsCache.delete(oldest);
+    }
+  }
+
+  async function playSpeech(url) {
+    state.audio = new Audio(url);
+    await state.audio.play();
+  }
+
   async function speak(text) {
-    const spoken = String(text || "").trim();
+    const spoken = String(text || "").trim().slice(0, 200);
     if (!spoken) return;
     stopSpeak();
+    const token = state.speakToken;
+    const cached = ttsCache.get(spoken);
+    if (cached) {
+      ttsCache.delete(spoken);
+      ttsCache.set(spoken, cached);
+      try {
+        if (token !== state.speakToken) return;
+        await playSpeech(cached);
+        return;
+      } catch (error) {
+        /* 缓存播不出来时再向服务要一次 */
+      }
+    }
     try {
       const res = await fetch(apiUrl("/tts"), {
         method: "POST",
         headers: headers({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ text: spoken.slice(0, 200) }),
+        body: JSON.stringify({ text: spoken }),
       });
+      if (token !== state.speakToken) return;
       if (!res.ok) throw new Error("tts");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      state.audio = new Audio(url);
-      state.audio.onended = () => URL.revokeObjectURL(url);
-      await state.audio.play();
-      return;
+      const url = URL.createObjectURL(await res.blob());
+      if (token !== state.speakToken) return;
+      rememberSpeech(spoken, url);
+      await playSpeech(url);
     } catch (error) {
-      if (!window.speechSynthesis) return;
+      if (token !== state.speakToken || !window.speechSynthesis) return;
       const utterance = new SpeechSynthesisUtterance(spoken);
       utterance.lang = "zh-CN";
-      utterance.rate = 0.95;
+      utterance.rate = 0.92;
       window.speechSynthesis.speak(utterance);
     }
   }
 
   function stopSpeak() {
+    state.speakToken = (state.speakToken || 0) + 1;
     if (state.audio) {
       state.audio.pause();
       state.audio = null;
@@ -644,6 +675,7 @@
 
   async function beginTalk() {
     if (state.recording || state.holding) return;
+    stopSpeak();
     const token = {};
     state.holdToken = token;
     state.holding = true;

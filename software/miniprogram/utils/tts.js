@@ -3,6 +3,7 @@ const api = require("./api")
 let audio = null
 let playingPath = ""
 let speakSeq = 0
+const fileCache = new Map()
 
 function getAudio() {
   if (audio) {
@@ -63,6 +64,13 @@ async function speak(settings, text) {
   }
   const player = getAudio()
   player.playbackRate = settings.playbackRate || 0.9
+  const cachedPath = fileCache.get(speech)
+  if (cachedPath) {
+    playingPath = cachedPath
+    player.src = cachedPath
+    player.play()
+    return true
+  }
   try {
     const buffer = await api.synthesizeSpeech(settings, speech)
     if (seq !== speakSeq) {
@@ -73,6 +81,11 @@ async function speak(settings, text) {
       return false
     }
     playingPath = filePath
+    fileCache.set(speech, filePath)
+    if (fileCache.size > 16) {
+      const oldest = fileCache.keys().next().value
+      fileCache.delete(oldest)
+    }
     player.src = filePath
     player.play()
     return true

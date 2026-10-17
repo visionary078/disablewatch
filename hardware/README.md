@@ -4,9 +4,12 @@
 
 | 文件 | 内容 |
 |---|---|
+| [soft-hardware-plan.md](soft-hardware-plan.md) | 现行软硬件策划：现在做到哪、下一步做什么、对外不要说什么 |
 | [hardware-plan-v1.md](hardware-plan-v1.md) | 3D 打印眼镜硬件策划：重量、充电、对标、三期 |
 | [customer-talking-points-v1.md](customer-talking-points-v1.md) | 客户交流话术 |
 | [neckband-plan-v1.md](neckband-plan-v1.md) | 挂脖眼镜详细方案 |
+| [wiring-v1.md](wiring-v1.md) | 现在要焊的线：电池、IP5306、Super Mini、VL53L8CX、以后的摄像头 |
+| [bringup-api.md](bringup-api.md) | 联调接口：摄像头 `POST /frame`，ESP32 `POST /tof` |
 | [see-next-step-glasses-plan-v1.docx](see-next-step-glasses-plan-v1.docx) | 完整 Word 策划案 v1.1（含可换多模态、MemOS） |
 | [memos-long-memory-plan-v1.md](memos-long-memory-plan-v1.md) | 与记忆张量 MemOS 合并：长期记忆层 |
 | [tests/bringup-checklist.md](tests/bringup-checklist.md) | 样机上机检查。软件自动测试在仓库的 GitHub Actions |

@@ -11,4 +11,11 @@ object FrameRules {
         if (hasSpoken || cameraOn) return FORWARD
         return STORE
     }
+
+    /** Same window as software/android/hub_policy.py fresh_tof_mm. */
+    fun freshTofMm(mm: Int, ageMs: Long): String {
+        if (mm <= 0 || mm > 8000) return ""
+        if (ageMs < 0 || ageMs > 3000) return ""
+        return mm.toString()
+    }
 }

@@ -19,6 +19,7 @@
 
   function beginTalk(event) {
     event.preventDefault();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (state.holding) return;
     state.holding = true;
     talkBtn.classList.add("holding");
@@ -100,7 +101,7 @@
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(spoken);
     utterance.lang = "zh-CN";
-    utterance.rate = 0.95;
+    utterance.rate = 0.92;
     window.speechSynthesis.speak(utterance);
   }
 

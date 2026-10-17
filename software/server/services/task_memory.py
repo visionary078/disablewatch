@@ -225,12 +225,15 @@ def build_question(intent: str, spoken_text: str, previous_question: str = "", t
     if intent == "read_price":
         return text if ("价格" in text or "多少钱" in text) else "请读取看得见的商品名称和价格，看不清的文字不要猜测。"
     if intent == "avoid_obstacle":
-        return text if len(text) > 4 else "请判断当前是否安全，并告诉我目标在哪个方向。"
+        return (
+            text
+            if len(text) > 4
+            else "请看脚下和正前方。有障碍就说先停一下，并说稍向左或稍向右。没有障碍再说继续向前。"
+        )
     if intent == "guide_way":
         return (
-            "用户要的是指路：根据这一帧说往哪一边走，不要把它说成在找一件商品。"
-            "speech 用口语，例如「往右前方走，先注意面前的架子」。"
-            "不要说米或步数，不要建议过马路。"
+            "用户要的是指路：只给下一步。有障碍先说停，再说稍向左、稍向右或继续向前。"
+            "不要把它说成在找一件商品。不要说米或步数，不要建议过马路。"
         )
     if intent == "find_product":
         target = str(target or "").strip() or _product_target(text) or text
