@@ -10,6 +10,7 @@
 | [neckband-plan-v1.md](neckband-plan-v1.md) | 挂脖眼镜详细方案 |
 | [wiring-v1.md](wiring-v1.md) | 现在要焊的线：电池、IP5306、Super Mini、VL53L8CX、以后的摄像头 |
 | [bringup-api.md](bringup-api.md) | 联调接口：摄像头 `POST /frame`，ESP32 `POST /tof` |
+| [esp32-s3-cam/frame_bridge](esp32-s3-cam/frame_bridge/frame_bridge.ino) | ESP32-S3-CAM 拍摄 JPEG 并送到 `/frame` |
 | [see-next-step-glasses-plan-v1.docx](see-next-step-glasses-plan-v1.docx) | 完整 Word 策划案 v1.1（含可换多模态、MemOS） |
 | [memos-long-memory-plan-v1.md](memos-long-memory-plan-v1.md) | 与记忆张量 MemOS 合并：长期记忆层 |
 | [tests/bringup-checklist.md](tests/bringup-checklist.md) | 样机上机检查。软件自动测试在仓库的 GitHub Actions |

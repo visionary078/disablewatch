@@ -44,6 +44,8 @@ POST http://192.168.43.1:8788/frame
 Content-Type: image/jpeg
 ```
 
+ESP32-S3-CAM（OV2640）的程序在 `hardware/esp32-s3-cam/frame_bridge/`。镜头在这块板上，5 V 和 GND 单独供电，不接到 Super Mini 的 3V3，也不占用 GPIO6、GPIO7。手机不在热点上时，把程序里的地址改成手机在当前 WiFi 下的地址。
+
 | 返回 | 含义 | 摄像头该怎么做 |
 |---|---|---|
 | 202 `{"status":"forward"}` | 这一帧已经交给识别 | 等下一拍 |
