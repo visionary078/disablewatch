@@ -42,19 +42,41 @@ class HubServer(
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
-        thread(name = "phone-hub") {
-            val socket = ServerSocket()
+        val socket = ServerSocket()
+        try {
             socket.reuseAddress = true
             socket.bind(InetSocketAddress("0.0.0.0", PORT))
-            server = socket
-            onStatus("正在等摄像头。眼镜打开 http://192.168.43.1:$PORT/")
-            while (running.get()) {
-                val client = try {
-                    socket.accept()
-                } catch (_: Exception) {
-                    break
+        } catch (error: Exception) {
+            running.set(false)
+            try {
+                socket.close()
+            } catch (_: Exception) {
+            }
+            throw error
+        }
+        server = socket
+        thread(name = "phone-hub") {
+            try {
+                onStatus("正在等摄像头。眼镜打开 ${PhoneAddress.glassesPage()}")
+                while (running.get()) {
+                    val client = try {
+                        socket.accept()
+                    } catch (_: Exception) {
+                        break
+                    }
+                    thread(name = "hub-conn") {
+                        try {
+                            handle(client)
+                        } catch (_: Exception) {
+                            try {
+                                client.close()
+                            } catch (_: Exception) {
+                            }
+                        }
+                    }
                 }
-                thread(name = "hub-conn") { handle(client) }
+            } catch (error: Exception) {
+                onStatus("接收中断：${error.message ?: error.javaClass.simpleName}")
             }
         }
     }

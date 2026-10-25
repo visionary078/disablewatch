@@ -17,9 +17,13 @@ class HubService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val gateway = intent?.getStringExtra(EXTRA_GATEWAY).orEmpty().ifEmpty { "https://watchapi.divesee.com" }
         val token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty()
-        startInForeground("正在等摄像头把画面送来")
-        if (hub == null) {
-            hub = HubServer(assets, gateway, token, ::startInForeground).also { it.start() }
+        try {
+            startInForeground("正在等摄像头把画面送来")
+            if (hub == null) {
+                hub = HubServer(assets, gateway, token, ::startInForeground).also { it.start() }
+            }
+        } catch (error: Exception) {
+            startInForeground("没听上 8788：${error.message ?: error.javaClass.simpleName}")
         }
         return START_STICKY
     }
