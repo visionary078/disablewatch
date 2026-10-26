@@ -76,13 +76,22 @@ bool connectWiFi() {
     Serial.printf("%s ch%d %d dBm\n", WiFi.SSID(i).c_str(), WiFi.channel(i), WiFi.RSSI(i));
     if (WiFi.SSID(i) == WIFI_SSID) found = i;
   }
-  if (found < 0) {
+  uint8_t bssid[6];
+  int channel = 0;
+  bool locked = false;
+  if (found >= 0) {
+    const uint8_t *id = WiFi.BSSID(found);
+    if (id != nullptr) {
+      memcpy(bssid, id, 6);
+      channel = WiFi.channel(found);
+      locked = true;
+    }
+  }
+  WiFi.scanDelete();
+  if (!locked) {
     Serial.println("没看到平板热点。先打开平板热点。");
     return false;
   }
-  uint8_t bssid[6];
-  memcpy(bssid, WiFi.BSSID(found), 6);
-  int channel = WiFi.channel(found);
   WiFi.begin(WIFI_SSID, WIFI_PASS, channel, bssid);
   Serial.print("正在连平板热点");
   for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; ++i) {

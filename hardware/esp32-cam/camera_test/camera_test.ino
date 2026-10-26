@@ -154,6 +154,7 @@ bool startCamera() {
 }
 
 bool joinPhone() {
+  lastJoinMs = millis();
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
   WiFi.setTxPower(WIFI_POWER_15dBm);
@@ -163,13 +164,22 @@ bool joinPhone() {
   for (int i = 0; i < n; ++i) {
     if (WiFi.SSID(i) == WIFI_SSID) found = i;
   }
-  if (found < 0) {
+  uint8_t bssid[6];
+  int channel = 0;
+  bool locked = false;
+  if (found >= 0) {
+    const uint8_t *id = WiFi.BSSID(found);
+    if (id != nullptr) {
+      memcpy(bssid, id, 6);
+      channel = WiFi.channel(found);
+      locked = true;
+    }
+  }
+  WiFi.scanDelete();
+  if (!locked) {
     Serial.println("没看到平板热点。先打开平板热点。");
     return false;
   }
-  uint8_t bssid[6];
-  memcpy(bssid, WiFi.BSSID(found), 6);
-  int channel = WiFi.channel(found);
   WiFi.begin(WIFI_SSID, WIFI_PASS, channel, bssid);
   Serial.print("正在连平板热点");
   for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; ++i) {
@@ -201,14 +211,18 @@ void setup() {
 
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastJoinMs > 5000) {
-      lastJoinMs = millis();
-      joinPhone();
-    }
+    if (millis() - lastJoinMs > 5000) joinPhone();
+    delay(200);
     return;
   }
-  if (!cameraReady) return;
-  if (millis() - lastShotMs < 1000) return;
+  if (!cameraReady) {
+    delay(200);
+    return;
+  }
+  if (millis() - lastShotMs < 1000) {
+    delay(50);
+    return;
+  }
   lastShotMs = millis();
   postPhoto();
 }

@@ -34,7 +34,7 @@ class MainActivity : Activity() {
     private var holding = false
     private var recognizing = false
     private var recording = false
-    private var capturedVoice = false
+    @Volatile private var capturedVoice = false
     private var pressAt = 0L
     private var focus: AudioFocusRequest? = null
     private var lastSeq = -1
@@ -276,7 +276,7 @@ class MainActivity : Activity() {
         if (!holding) return
         holding = false
         handler.removeCallbacks(tick)
-        talk.text = "点一下开始说"
+        talk.text = "点一下说话"
         if (failed.isNotEmpty()) {
             sayAloud(failed)
             return
