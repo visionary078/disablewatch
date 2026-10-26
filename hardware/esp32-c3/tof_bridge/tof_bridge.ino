@@ -38,6 +38,10 @@ void setup() {
   } else {
     Serial.println("I2C 上没有 0x29。先核对 SDA=GPIO6、SCL=GPIO7、LPn 和 NCS 接 3V3。");
   }
+  connectWiFi();
+}
+
+void connectWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("正在连热点");
@@ -78,7 +82,10 @@ int readMillimeters() {
 }
 
 void postMillimeters(int mm) {
-  if (WiFi.status() != WL_CONNECTED) return;
+  if (WiFi.status() != WL_CONNECTED) {
+    connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) return;
+  }
   HTTPClient http;
   http.setTimeout(2000);
   if (!http.begin(TOF_URL)) return;

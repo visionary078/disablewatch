@@ -1,18 +1,32 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val xiaomiApiKey = (localProperties.getProperty("xiaomi.apiKey") ?: "")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+
 android {
     namespace = "com.seenext.phonehub"
     compileSdk = 34
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.seenext.phonehub"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.6"
+        versionCode = 9
+        versionName = "1.8"
+        buildConfigField("String", "XIAOMI_API_KEY", "\"$xiaomiApiKey\"")
     }
 
     compileOptions {

@@ -21,7 +21,7 @@
         android:layout_width="match_parent"
         android:layout_height="96dp"
         android:layout_marginTop="20dp"
-        android:text="点一下开始说"
+        android:text="点一下说话"
         android:textSize="24sp" />
 
     <TextView
@@ -37,7 +37,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="点一下开始说，说完再点一下。"
+        android:text="点一下，说要找什么。说完停一下。"
         android:textSize="20sp" />
 
     <TextView
@@ -45,22 +45,23 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="眼镜和摄像头连手机现在的 WiFi。眼镜播报页用手机自己的地址。" />
+        android:text="照片和距离留在这台平板。说话后直接问小米。" />
 
     <EditText
         android:id="@+id/gateway"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:hint="网关地址"
-        android:inputType="textUri" />
+        android:hint="小米密钥"
+        android:inputType="textPassword" />
 
     <EditText
         android:id="@+id/token"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="使用口令"
-        android:inputType="textPassword" />
+        android:inputType="textPassword"
+        android:visibility="gone" />
 
     <Button
         android:id="@+id/toggle"
