@@ -19,6 +19,7 @@ static const char *TOF_URL = "http://192.168.43.1:8788/tof";
 static const int SDA_PIN = 6;
 static const int SCL_PIN = 7;
 static unsigned long lastPostMs = 0;
+static unsigned long lastJoinMs = 0;
 
 int postTo(int mm) {
   HTTPClient http;
@@ -55,8 +56,19 @@ void setup() {
   }
   ranging = true;
   Serial.println("开始测距");
+  WiFi.onEvent([](arduino_event_id_t event, arduino_event_info_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      Serial.printf("断开原因 %u\n", info.wifi_sta_disconnected.reason);
+    }
+  });
+  connectWiFi();
+}
+
+bool connectWiFi() {
+  lastJoinMs = millis();
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
+  WiFi.setTxPower(WIFI_POWER_15dBm);
   Serial.println("扫描平板热点");
   int n = WiFi.scanNetworks();
   int found = -1;
@@ -66,17 +78,11 @@ void setup() {
   }
   if (found < 0) {
     Serial.println("没看到平板热点。先打开平板热点。");
-    return;
+    return false;
   }
   uint8_t bssid[6];
   memcpy(bssid, WiFi.BSSID(found), 6);
   int channel = WiFi.channel(found);
-  WiFi.setTxPower(WIFI_POWER_15dBm);
-  WiFi.onEvent([](arduino_event_id_t event, arduino_event_info_t info) {
-    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-      Serial.printf("断开原因 %u\n", info.wifi_sta_disconnected.reason);
-    }
-  });
   WiFi.begin(WIFI_SSID, WIFI_PASS, channel, bssid);
   Serial.print("正在连平板热点");
   for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; ++i) {
@@ -84,20 +90,25 @@ void setup() {
     Serial.print(".");
   }
   Serial.println();
-  if (WiFi.status() == WL_CONNECTED) {
-    WiFi.setTxPower(WIFI_POWER_15dBm);
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-    Serial.println("发射 15 dBm");
-    Serial.print("已连上，本机地址 ");
-    Serial.println(WiFi.localIP());
-    Serial.println(TOF_URL);
-  } else {
+  if (WiFi.status() != WL_CONNECTED) {
     Serial.println("看到了热点，但是没连上。");
+    return false;
   }
+  WiFi.setTxPower(WIFI_POWER_15dBm);
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  Serial.println("发射 15 dBm");
+  Serial.print("已连上，本机地址 ");
+  Serial.println(WiFi.localIP());
+  Serial.println(TOF_URL);
+  return true;
 }
 
 void postMillimeters(int mm) {
-  if (WiFi.status() != WL_CONNECTED) return;
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - lastJoinMs < 5000) return;
+    connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) return;
+  }
   if (millis() - lastPostMs < 1000) return;
   lastPostMs = millis();
   int code = postTo(mm);
