@@ -1,18 +1,16 @@
 /*
  * AI Thinker ESP32-CAM。
- * 自己开热点 SeeNext-CAM，大约一秒把一张 JPEG 发到手机的 /frame。
- * 手机连上后，浏览器打开 http://192.168.4.1/ 仍能看刚才那张。
- * 开发板选 AI Thinker ESP32-CAM，Flash Mode 选 DIO。
+ * 连平板热点，大约一秒把一张 JPEG 发到 192.168.43.1:8788/frame。
+ * 平板自己开这个热点，地址不要改。开发板选 AI Thinker ESP32-CAM，Flash Mode 选 DIO。
  */
 #include <WiFi.h>
-#include <WebServer.h>
 #include "esp_camera.h"
 #include "esp_wifi.h"
 
-static const char *AP_SSID = "SeeNext-CAM";
-static const char *AP_PASS = "填热点密码";
+static const char *WIFI_SSID = "填手机热点名称";
+static const char *WIFI_PASS = "填热点密码";
+static const char *PHONE_IP = "192.168.43.1";
 static const uint16_t PHONE_PORT = 8788;
-static int phoneOctet = 0;
 
 #define PWDN_GPIO_NUM  32
 #define RESET_GPIO_NUM -1
@@ -31,9 +29,9 @@ static int phoneOctet = 0;
 #define HREF_GPIO_NUM  23
 #define PCLK_GPIO_NUM  22
 
-static WebServer server(80);
 static bool cameraReady = false;
 static unsigned long lastShotMs = 0;
+static unsigned long lastJoinMs = 0;
 
 bool writeAll(WiFiClient &client, const uint8_t *data, size_t len) {
   size_t sent = 0;
@@ -63,12 +61,13 @@ bool writeFrame(WiFiClient &client, const uint8_t *src, size_t len) {
   return sent == len;
 }
 
-int sendJpeg(int octet, const uint8_t *src, size_t len) {
-  IPAddress ip(192, 168, 4, octet);
+int sendJpeg(const uint8_t *src, size_t len) {
+  IPAddress ip;
+  if (!ip.fromString(PHONE_IP)) return -1;
   WiFiClient client;
   if (!client.connect(ip, PHONE_PORT, 600)) return -1;
   char host[16];
-  snprintf(host, sizeof(host), "192.168.4.%d", octet);
+  snprintf(host, sizeof(host), "%s", PHONE_IP);
   char head[180];
   int headLen = snprintf(head, sizeof(head),
                          "POST /frame HTTP/1.1\r\nHost: %s:%u\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\nConnection: close\r\n\r\n",
@@ -76,7 +75,7 @@ int sendJpeg(int octet, const uint8_t *src, size_t len) {
   bool ok = headLen > 0 && writeAll(client, (const uint8_t *)head, (size_t)headLen) && writeFrame(client, src, len);
   if (!ok) {
     client.stop();
-    Serial.printf("192.168.4.%d 照片没发完\n", octet);
+    Serial.printf("%s 照片没发完\n", PHONE_IP);
     return -2;
   }
   client.flush();
@@ -86,7 +85,7 @@ int sendJpeg(int octet, const uint8_t *src, size_t len) {
   client.stop();
   int space = line.indexOf(' ');
   int code = space > 0 ? line.substring(space + 1).toInt() : -1;
-  Serial.printf("发给 192.168.4.%d  %u 字节 → %d\n", octet, (unsigned)len, code);
+  Serial.printf("发给 %s  %u 字节 → %d\n", PHONE_IP, (unsigned)len, code);
   return code;
 }
 
@@ -104,28 +103,9 @@ int postPhoto() {
     Serial.println("不是 JPEG");
     return -1;
   }
-  int order[4];
-  int n = 0;
-  if (phoneOctet >= 2 && phoneOctet <= 5) order[n++] = phoneOctet;
-  const int fallback[] = {2, 4, 3, 5};
-  for (int i = 0; i < 4; ++i) {
-    bool seen = false;
-    for (int j = 0; j < n; ++j) if (order[j] == fallback[i]) seen = true;
-    if (!seen) order[n++] = fallback[i];
-  }
-  int code = -1;
-  for (int i = 0; i < n; ++i) {
-    code = sendJpeg(order[i], src, len);
-    if (code > 0) {
-      phoneOctet = order[i];
-      break;
-    }
-  }
+  int code = sendJpeg(src, len);
   esp_camera_fb_return(frame);
-  if (code <= 0) {
-    phoneOctet = 0;
-    Serial.println("连不上手机");
-  }
+  if (code <= 0) Serial.println("连不上平板");
   return code;
 }
 
@@ -173,28 +153,40 @@ bool startCamera() {
   return true;
 }
 
-void sendPage() {
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "text/html; charset=utf-8",
-              "<!DOCTYPE html><meta charset=utf-8>"
-              "<title>摄像头</title><p>照片正在发给手机。</p>");
-}
-
-bool startHotspot() {
-  WiFi.mode(WIFI_AP);
-  WiFi.setSleep(false);
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  if (!WiFi.softAP(AP_SSID, AP_PASS, 6, 0, 2)) {
-    Serial.println("热点没打开");
+bool joinPhone() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(true);
+  WiFi.setTxPower(WIFI_POWER_15dBm);
+  Serial.println("扫描平板热点");
+  int n = WiFi.scanNetworks();
+  int found = -1;
+  for (int i = 0; i < n; ++i) {
+    if (WiFi.SSID(i) == WIFI_SSID) found = i;
+  }
+  if (found < 0) {
+    Serial.println("没看到平板热点。先打开平板热点。");
     return false;
   }
-  esp_wifi_set_ps(WIFI_PS_NONE);
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  server.on("/", HTTP_GET, sendPage);
-  server.begin();
-  Serial.print("页面 http://");
-  Serial.println(WiFi.softAPIP());
-  Serial.println("照片在 192.168.4.2 到 .5 里找手机的 8788");
+  uint8_t bssid[6];
+  memcpy(bssid, WiFi.BSSID(found), 6);
+  int channel = WiFi.channel(found);
+  WiFi.begin(WIFI_SSID, WIFI_PASS, channel, bssid);
+  Serial.print("正在连平板热点");
+  for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; ++i) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("看到了热点，但是没连上。");
+    return false;
+  }
+  WiFi.setTxPower(WIFI_POWER_15dBm);
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  Serial.println("发射 15 dBm");
+  Serial.print("已连上，照片发给 ");
+  Serial.print(PHONE_IP);
+  Serial.println(":8788");
   return true;
 }
 
@@ -204,11 +196,17 @@ void setup() {
   Serial.println("ESP32-CAM 发照片");
   cameraReady = startCamera();
   if (cameraReady) Serial.println("摄像头初始化成功");
-  startHotspot();
+  joinPhone();
 }
 
 void loop() {
-  server.handleClient();
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - lastJoinMs > 5000) {
+      lastJoinMs = millis();
+      joinPhone();
+    }
+    return;
+  }
   if (!cameraReady) return;
   if (millis() - lastShotMs < 1000) return;
   lastShotMs = millis();

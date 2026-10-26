@@ -5,20 +5,16 @@ import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.net.URL
 import java.nio.charset.StandardCharsets
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 class HubServer(
     private val assets: AssetManager,
-    private val gateway: String,
-    private val token: String,
+    private val apiKey: String,
     private val onStatus: (String) -> Unit,
 ) {
     private val running = AtomicBoolean(false)
@@ -38,7 +34,6 @@ class HubServer(
     private var direction = ""
     private var mode = ""
     private var error = ""
-    private val sessionId = UUID.randomUUID().toString()
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
@@ -251,41 +246,8 @@ class HubServer(
     }
 
     private fun postInfer(jpeg: ByteArray, spoken: String, useMode: String): String {
-        val boundary = "seenext${System.currentTimeMillis()}"
-        val url = URL(gateway.trimEnd('/') + "/infer")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.doOutput = true
-        conn.connectTimeout = 15000
-        conn.readTimeout = 90000
-        if (token.isNotEmpty()) conn.setRequestProperty("X-App-Token", token)
-        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-        conn.outputStream.use { out ->
-            fun field(name: String, value: String) {
-                out.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n".toByteArray())
-            }
-            out.write(
-                "--$boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"scene.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n"
-                    .toByteArray()
-            )
-            out.write(jpeg)
-            out.write("\r\n".toByteArray())
-            field("question", "请判断当前是否安全，并告诉我目标在哪个方向。")
-            field("mode", useMode)
-            field("session_id", sessionId)
-            field("user_id", "phone")
-            field("spoken_text", spoken)
-            field("client", "phone")
-            val tof = currentTofField()
-            if (tof.isNotEmpty()) field("tof_mm", tof)
-            out.write("--$boundary--\r\n".toByteArray())
-        }
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val text = stream?.bufferedReader()?.readText().orEmpty()
-        if (code == 429) return ""
-        if (code !in 200..299) throw IllegalStateException("识别失败 $code")
-        return text
+        if (spoken.isEmpty()) return ""
+        return Xiaomi.look(apiKey, jpeg, spoken, currentTofField())
     }
 
     private fun speechJson(): String {

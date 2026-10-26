@@ -18,7 +18,7 @@ object PhoneAddress {
                 }
             }
         }
-        return found.firstOrNull { it != "192.168.43.1" } ?: found.firstOrNull().orEmpty()
+        return found.firstOrNull { it == "192.168.43.1" } ?: found.firstOrNull().orEmpty()
     }
 
     fun glassesPage(): String {

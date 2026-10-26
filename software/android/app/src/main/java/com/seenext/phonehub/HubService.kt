@@ -11,16 +11,18 @@ import android.os.IBinder
 
 class HubService : Service() {
     private var hub: HubServer? = null
+    private var openedGateway = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val gateway = intent?.getStringExtra(EXTRA_GATEWAY).orEmpty().ifEmpty { "https://watchapi.divesee.com" }
-        val token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty()
+        val apiKey = intent?.getStringExtra(EXTRA_API_KEY).orEmpty().ifEmpty { BuildConfig.XIAOMI_API_KEY }
         try {
             startInForeground("正在等摄像头把画面送来")
-            if (hub == null) {
-                hub = HubServer(assets, gateway, token, ::startInForeground).also { it.start() }
+            if (hub == null || openedGateway != apiKey) {
+                hub?.stop()
+                hub = HubServer(assets, apiKey, ::startInForeground).also { it.start() }
+                openedGateway = apiKey
             }
         } catch (error: Exception) {
             startInForeground("没听上 8788：${error.message ?: error.javaClass.simpleName}")
@@ -56,6 +58,7 @@ class HubService : Service() {
     companion object {
         const val EXTRA_GATEWAY = "gateway"
         const val EXTRA_TOKEN = "token"
+        const val EXTRA_API_KEY = "xiaomi_key"
         private const val CHANNEL = "phone-hub"
         private const val NOTIFICATION_ID = 7
     }

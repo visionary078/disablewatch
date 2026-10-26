@@ -4,7 +4,10 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
@@ -12,10 +15,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
-import android.view.MotionEvent
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import kotlin.math.abs
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
@@ -31,7 +34,9 @@ class MainActivity : Activity() {
     private var holding = false
     private var recognizing = false
     private var recording = false
+    private var capturedVoice = false
     private var pressAt = 0L
+    private var focus: AudioFocusRequest? = null
     private var lastSeq = -1
     private var lastSpeech = ""
     private var lastRisk = ""
@@ -43,7 +48,6 @@ class MainActivity : Activity() {
     private lateinit var findingView: TextView
     private lateinit var status: TextView
     private lateinit var gateway: EditText
-    private lateinit var token: EditText
     private lateinit var toggle: Button
 
     private val poll = object : Runnable {
@@ -67,27 +71,23 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
         gateway = findViewById(R.id.gateway)
-        token = findViewById(R.id.token)
         toggle = findViewById(R.id.toggle)
         status = findViewById(R.id.status)
         talk = findViewById(R.id.talk)
         speechView = findViewById(R.id.speech)
         findingView = findViewById(R.id.finding)
         val page = findViewById<TextView>(R.id.page)
-        gateway.setText(prefs.getString(HubService.EXTRA_GATEWAY, "https://watchapi.divesee.com"))
-        token.setText(prefs.getString(HubService.EXTRA_TOKEN, ""))
-        page.text = "眼镜打开 ${PhoneAddress.glassesPage()}"
+        gateway.setText(savedKey(prefs))
+        page.text = "照片和距离留在这台平板。说话后直接问小米。"
         toggle.setOnClickListener { startHub(checkPage = true) }
-        talk.isLongClickable = false
-        talk.setOnTouchListener { view, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                view.parent?.requestDisallowInterceptTouchEvent(true)
-                val tooSoon = holding && System.currentTimeMillis() - pressAt < 700
-                if (!tooSoon) {
-                    if (holding && !recognizing) endTalk() else beginTalk()
-                }
+        talk.setOnClickListener {
+            if (recognizing) return@setOnClickListener
+            if (holding) {
+                if (System.currentTimeMillis() - pressAt < 400) return@setOnClickListener
+                endTalk()
+            } else {
+                beginTalk()
             }
-            true
         }
         tts = TextToSpeech(this) { code ->
             if (code == TextToSpeech.SUCCESS) {
@@ -109,7 +109,7 @@ class MainActivity : Activity() {
         if (holding || recognizing) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2)
-            sayAloud("先允许麦克风，再按住说。")
+            sayAloud("先允许麦克风，再点一下说。")
             return
         }
         startHub(checkPage = false)
@@ -120,8 +120,8 @@ class MainActivity : Activity() {
         }
         holding = true
         pressAt = System.currentTimeMillis()
-        talk.text = "正在听\n再点一下结束"
-        speechView.text = "正在听。说完再点一下。"
+        talk.text = "正在听\n说完停一下"
+        speechView.text = "正在听。说完停一下，它自己结束。"
         handler.post(tick)
     }
 
@@ -129,7 +129,7 @@ class MainActivity : Activity() {
         override fun run() {
             if (!holding || recognizing) return
             val seconds = ((System.currentTimeMillis() - pressAt) / 1000).toInt()
-            talk.text = "正在听 $seconds 秒\n再点一下结束"
+            talk.text = "正在听 $seconds 秒\n说完停一下"
             handler.postDelayed(this, 500)
         }
     }
@@ -141,38 +141,101 @@ class MainActivity : Activity() {
             AudioFormat.ENCODING_PCM_16BIT,
         )
         if (min <= 0) return false
-        val rec = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            min * 2,
-        )
-        if (rec.state != AudioRecord.STATE_INITIALIZED) {
-            rec.release()
-            return false
-        }
+        val rec = openMic(min * 4) ?: return false
+        listenFocus(true)
         pcm.reset()
+        capturedVoice = false
         recording = true
         rec.startRecording()
+        if (rec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            rec.release()
+            listenFocus(false)
+            recording = false
+            return false
+        }
         audio = rec
+        val started = System.currentTimeMillis()
         thread(name = "mic") {
             val buf = ByteArray(min)
+            var lastVoice = 0L
             while (recording) {
                 val n = rec.read(buf, 0, buf.size)
                 if (n <= 0) continue
+                if (peakPcm(buf, n) >= SPEECH_PEAK) {
+                    capturedVoice = true
+                    lastVoice = System.currentTimeMillis()
+                }
                 var full = false
                 synchronized(pcm) {
                     if (pcm.size() < MAX_PCM) pcm.write(buf, 0, n)
                     full = pcm.size() >= MAX_PCM
                 }
-                if (full) {
+                val elapsed = System.currentTimeMillis() - started
+                val quiet = capturedVoice && lastVoice > 0 && System.currentTimeMillis() - lastVoice >= SILENCE_MS
+                val gaveUp = !capturedVoice && elapsed >= WAIT_SPEECH_MS
+                if (full || quiet || gaveUp || elapsed >= MAX_LISTEN_MS) {
                     handler.post { endTalk() }
                     break
                 }
             }
         }
         return true
+    }
+
+    private fun openMic(buffer: Int): AudioRecord? {
+        val sources = intArrayOf(MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.MIC)
+        for (source in sources) {
+            val rec = try {
+                AudioRecord.Builder()
+                    .setAudioSource(source)
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(SAMPLE_RATE)
+                            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(buffer)
+                    .build()
+            } catch (_: Exception) {
+                null
+            } ?: continue
+            if (rec.state == AudioRecord.STATE_INITIALIZED) return rec
+            rec.release()
+        }
+        return null
+    }
+
+    private fun peakPcm(buf: ByteArray, n: Int): Int {
+        var peak = 0
+        var i = 0
+        val end = n - (n and 1)
+        while (i < end) {
+            val sample = (buf[i].toInt() and 0xff) or (buf[i + 1].toInt() shl 8)
+            val level = abs(sample.toShort().toInt())
+            if (level > peak) peak = level
+            i += 2
+        }
+        return peak
+    }
+
+    private fun listenFocus(on: Boolean) {
+        val manager = getSystemService(AUDIO_SERVICE) as AudioManager
+        if (on) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .build()
+            focus = request
+            manager.requestAudioFocus(request)
+        } else {
+            focus?.let { manager.abandonAudioFocusRequest(it) }
+            focus = null
+        }
     }
 
     private fun stopRecorder() {
@@ -183,15 +246,15 @@ class MainActivity : Activity() {
         }
         audio?.release()
         audio = null
+        listenFocus(false)
     }
 
     private fun endTalk() {
         if (!holding || recognizing) return
-        val held = System.currentTimeMillis() - pressAt
         stopRecorder()
         handler.removeCallbacks(tick)
-        if (held < 600) {
-            finishHold("", "再说长一点，然后点一下结束。")
+        if (!capturedVoice) {
+            finishHold("", "没录到声音。再点一下说。")
             return
         }
         recognizing = true
@@ -203,8 +266,8 @@ class MainActivity : Activity() {
             runOnUiThread {
                 recognizing = false
                 if (!holding) holding = true
-                if (heard.isNullOrEmpty()) finishHold("", "没听清。再按住说一次。")
-                else finishHold(heard)
+                if (heard.text.isEmpty()) finishHold("", heard.failed.ifEmpty { "没听清。再点一下说。" })
+                else finishHold(heard.text)
             }
         }
     }
@@ -220,7 +283,7 @@ class MainActivity : Activity() {
         }
         val spoken = text.trim()
         if (spoken.isEmpty()) {
-            sayAloud("没听清。再按住说一次。")
+            sayAloud("没听清。再点一下说。")
             return
         }
         speechView.text = spoken
@@ -241,19 +304,15 @@ class MainActivity : Activity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
-        prefs.edit()
-            .putString(HubService.EXTRA_GATEWAY, gateway.text.toString().trim())
-            .putString(HubService.EXTRA_TOKEN, token.text.toString().trim())
-            .apply()
+        val key = gateway.text.toString().trim().ifEmpty { BuildConfig.XIAOMI_API_KEY }
+        prefs.edit().putString(HubService.EXTRA_API_KEY, key).apply()
         val intent = Intent(this, HubService::class.java)
-            .putExtra(HubService.EXTRA_GATEWAY, gateway.text.toString().trim())
-            .putExtra(HubService.EXTRA_TOKEN, token.text.toString().trim())
+            .putExtra(HubService.EXTRA_API_KEY, key)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
         toggle.text = "已在接收"
         if (!checkPage) return
         val page = findViewById<TextView>(R.id.page)
-        val glasses = PhoneAddress.glassesPage()
-        page.text = "眼镜打开 $glasses。说话按钮就在这个页面。"
+        page.text = "照片和距离留在这台平板。说话后直接问小米。"
         status.text = "正在检查本机页面"
         thread(name = "hub-self-test") {
             var message = "本机页面没打开"
@@ -345,33 +404,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun transcribe(pcmBytes: ByteArray): String? {
-        if (pcmBytes.size < SAMPLE_RATE) return null
+    private fun transcribe(pcmBytes: ByteArray): Heard {
+        if (pcmBytes.size < SAMPLE_RATE / 2) return Heard(failed = "没录到声音。再点一下说。")
+        val key = gateway.text.toString().trim().ifEmpty { BuildConfig.XIAOMI_API_KEY }
+        if (!key.startsWith("sk-")) return Heard(failed = "先填小米密钥。")
         return try {
-            val boundary = "seenext${System.currentTimeMillis()}"
-            val conn = URL(gateway.text.toString().trim().trimEnd('/') + "/asr").openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.connectTimeout = 15000
-            conn.readTimeout = 30000
-            val tokenText = token.text.toString().trim()
-            if (tokenText.isNotEmpty()) conn.setRequestProperty("X-App-Token", tokenText)
-            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-            conn.outputStream.use { out ->
-                out.write(
-                    "--$boundary\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n"
-                        .toByteArray()
-                )
-                out.write(wavBytes(pcmBytes))
-                out.write("\r\n--$boundary--\r\n".toByteArray())
-            }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299 || !text.startsWith("{")) null
-            else JSONObject(text).optString("text").trim().ifEmpty { null }
-        } catch (_: Exception) {
-            null
+            val heard = Xiaomi.transcribe(key, wavBytes(pcmBytes))
+            if (heard.isEmpty()) Heard(failed = "没听清。再点一下说。") else Heard(heard)
+        } catch (error: Exception) {
+            Heard(failed = error.message ?: "小米没接上。")
         }
     }
 
@@ -427,10 +468,23 @@ class MainActivity : Activity() {
         return null
     }
 
+    private fun savedKey(prefs: android.content.SharedPreferences): String {
+        val saved = prefs.getString(HubService.EXTRA_API_KEY, "").orEmpty().trim()
+        if (saved.startsWith("sk-")) return saved
+        val built = BuildConfig.XIAOMI_API_KEY.trim()
+        return if (built.startsWith("sk-")) built else ""
+    }
+
+    private class Heard(val text: String = "", val failed: String = "")
+
     companion object {
         private const val PREFS = "phone-hub"
         private const val SPEAK_GAP_MS = 4000L
         private const val SAMPLE_RATE = 16000
-        private const val MAX_PCM = SAMPLE_RATE * 2 * 60
+        private const val MAX_PCM = SAMPLE_RATE * 2 * 20
+        private const val SPEECH_PEAK = 700
+        private const val SILENCE_MS = 1100L
+        private const val MAX_LISTEN_MS = 15000L
+        private const val WAIT_SPEECH_MS = 8000L
     }
 }
