@@ -35,7 +35,7 @@ GET http://192.168.43.1:8788/status
 
 ## 2. 摄像头 → `POST /frame`
 
-约每 2.5 秒发一张 JPEG。必须带 `Content-Length`。
+约每 4.5 秒发一张 JPEG（ESP32-S3-CAM 草图）。必须带 `Content-Length`。微信小程序和云端 `/glasses/` 仍是大约 2.5 秒一帧，各用自己的摄像头。
 
 正文可以直接是 JPEG，以 `FF D8` 开头。也可以是 `multipart/form-data`，里面夹一张 JPEG。
 
