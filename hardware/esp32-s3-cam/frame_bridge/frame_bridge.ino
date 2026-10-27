@@ -21,9 +21,11 @@ static const char *WIFI_SSID = "填手机热点名称";
 static const char *WIFI_PASS = "填热点密码";
 static const char *FRAME_URL = "http://192.168.43.1:8788/frame";
 
-static const unsigned long FRAME_INTERVAL_MS = 2500;
+// 黑客松（11 月 4–5 日）前拉长间隔，给电池留余量。
+static const unsigned long FRAME_INTERVAL_MS = 4500;
 static const size_t MAX_JPEG_BYTES = 2000000;
 
+// 帧间关相机需要 PWDN；-1 表示帧间不掉电。
 #define PWDN_GPIO_NUM  -1
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM  15
