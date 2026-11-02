@@ -5,6 +5,7 @@
 | 文件 | 内容 |
 |---|---|
 | [soft-hardware-plan.md](soft-hardware-plan.md) | 现行软硬件策划：现在做到哪、下一步做什么、对外不要说什么 |
+| [progress.md](progress.md) | 2026-11-02 硬件进度：样机接到哪，仓库里的固件草图到哪 |
 | [hardware-plan-v1.md](hardware-plan-v1.md) | 3D 打印眼镜硬件策划：重量、充电、对标、三期 |
 | [customer-talking-points-v1.md](customer-talking-points-v1.md) | 客户交流话术 |
 | [neckband-plan-v1.md](neckband-plan-v1.md) | 挂脖眼镜详细方案 |
